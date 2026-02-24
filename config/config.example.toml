@@ -25,7 +25,7 @@ port = 1521
 service = "FREEPDB1"
 user = "zerooraclaw"
 password = "ZeroOraClaw2026"
-onnx_model = "ALL_MINILM_L12_V2"   # In-database ONNX embedding model (384-dim)
+onnx_model = "ALL_MINILM_L12_V2"   # In-database ONNX embedding model (384-dim, or SCHEMA.MODEL_NAME for cross-schema)
 agent_id = "default"                # Multi-agent namespace isolation
 max_connections = 5
 
