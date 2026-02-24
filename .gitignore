@@ -29,3 +29,16 @@ venv/
 *.pem
 credentials.json
 .worktrees/
+
+# AI assistant config files
+.coderabbit.yaml
+.coderabbit.yml
+.gemini/
+AGENTS.md
+.cursor/
+.copilot/
+.aider*
+.tmp_todo_probe
+
+# AI-generated design docs and plans
+docs/plans/
