@@ -34,7 +34,7 @@ impl OraclePromptStore {
                 let content: Option<String> = row.get(0)?;
                 Ok(content)
             }
-            Err(oracle::Error::NoDataFound) => Ok(None),
+            Err(ref e) if e.kind() == oracle::ErrorKind::NoDataFound => Ok(None),
             Err(e) => Err(anyhow::anyhow!("Failed to get prompt '{name}': {e}")),
         }
     }

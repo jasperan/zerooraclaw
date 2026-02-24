@@ -59,7 +59,7 @@ impl OracleConfigStore {
                 let value: Option<String> = row.get(0)?;
                 Ok(value)
             }
-            Err(oracle::Error::NoDataFound) => Ok(None),
+            Err(ref e) if e.kind() == oracle::ErrorKind::NoDataFound => Ok(None),
             Err(e) => Err(anyhow::anyhow!("Failed to get config '{key}': {e}")),
         }
     }

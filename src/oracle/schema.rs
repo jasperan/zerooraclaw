@@ -137,11 +137,18 @@ const VECTOR_INDEXES: &[&str] = &[
 fn exec_ddl_idempotent(conn: &Connection, sql: &str, ignore_codes: &[i32]) -> anyhow::Result<()> {
     match conn.execute(sql, &[]) {
         Ok(_) => Ok(()),
-        Err(oracle::Error::OciError(ref e)) if ignore_codes.contains(&e.code()) => {
-            debug!("DDL skipped (ORA-{}): {}", e.code(), e.message().trim());
-            Ok(())
+        Err(ref e) => {
+            if let Some(db_err) = e.db_error() {
+                if ignore_codes.contains(&db_err.code()) {
+                    debug!("DDL skipped (ORA-{}): {}", db_err.code(), db_err.message().trim());
+                    Ok(())
+                } else {
+                    Err(anyhow::anyhow!("DDL failed: {e}\nSQL: {sql}"))
+                }
+            } else {
+                Err(anyhow::anyhow!("DDL failed: {e}\nSQL: {sql}"))
+            }
         }
-        Err(e) => Err(anyhow::anyhow!("DDL failed: {e}\nSQL: {sql}")),
     }
 }
 

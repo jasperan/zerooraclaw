@@ -32,6 +32,7 @@ use axum::{
     routing::{delete, get, post, put},
     Router,
 };
+use serde::Deserialize;
 use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};

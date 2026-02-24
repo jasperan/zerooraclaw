@@ -402,7 +402,7 @@ impl Memory for OracleMemory {
 
                     Ok(Some(entry))
                 }
-                Err(oracle::Error::NoDataFound) => Ok(None),
+                Err(ref e) if e.kind() == oracle::ErrorKind::NoDataFound => Ok(None),
                 Err(e) => Err(anyhow::anyhow!("Failed to get memory '{key}': {e}")),
             }
         })
