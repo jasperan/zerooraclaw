@@ -440,6 +440,40 @@ Examples:
         config_command: ConfigCommands,
     },
 
+    /// Initialize Oracle AI Database schema and load ONNX embedding model
+    #[command(long_about = "\
+Initialize the Oracle AI Database backend.
+
+Creates the 8 ZERO_* tables, regular indexes, and vector indexes. \
+Checks that the ONNX embedding model is loaded. Seeds system prompts \
+from workspace .md files (IDENTITY.md, SOUL.md, etc.).
+
+Examples:
+  zeroclaw setup-oracle")]
+    SetupOracle,
+
+    /// Inspect Oracle AI Database contents
+    #[command(long_about = "\
+Inspect the Oracle AI Database backend.
+
+Shows row counts for all ZERO_* tables and optionally displays \
+sample rows from a specific table. Use --search with the memories \
+table to perform a vector similarity search.
+
+Examples:
+  zeroclaw oracle-inspect
+  zeroclaw oracle-inspect memories
+  zeroclaw oracle-inspect sessions
+  zeroclaw oracle-inspect memories --search 'user preferences'")]
+    OracleInspect {
+        /// Table to inspect: all, memories, sessions, state, prompts, notes, transcripts, config
+        #[arg(default_value = "all")]
+        table: String,
+        /// Semantic search query (for memories table)
+        #[arg(short, long)]
+        search: Option<String>,
+    },
+
     /// Generate shell completion script to stdout
     #[command(long_about = "\
 Generate shell completion scripts for `zeroclaw`.
@@ -992,6 +1026,12 @@ async fn main() -> Result<()> {
             peripherals::handle_command(peripheral_command.clone(), &config).await
         }
 
+        Commands::SetupOracle => handle_setup_oracle(&config).await,
+
+        Commands::OracleInspect { table, search } => {
+            handle_oracle_inspect(&config, &table, search.as_deref()).await
+        }
+
         Commands::Config { config_command } => match config_command {
             ConfigCommands::Schema => {
                 let schema = schemars::schema_for!(config::Config);
@@ -1003,6 +1043,409 @@ async fn main() -> Result<()> {
             }
         },
     }
+}
+
+// ─── Oracle CLI Handlers ────────────────────────────────────────────────────
+
+async fn handle_setup_oracle(config: &Config) -> Result<()> {
+    use zeroclaw::oracle;
+
+    println!();
+    println!("  ZeroOraClaw Oracle Setup");
+    println!("  ========================");
+    println!();
+
+    // 1. Connect to Oracle
+    println!("  Connecting to Oracle ({} mode)...", config.oracle.mode);
+    let mgr = tokio::task::spawn_blocking({
+        let oracle_config = config.oracle.clone();
+        move || oracle::OracleConnectionManager::new(&oracle_config)
+    })
+    .await??;
+    println!("  Connected.");
+
+    // 2. Initialize schema
+    println!("  Initializing schema...");
+    let conn = mgr.conn();
+    let agent_id = mgr.agent_id().to_string();
+    tokio::task::spawn_blocking({
+        let conn = conn.clone();
+        let agent_id = agent_id.clone();
+        move || {
+            let guard = conn
+                .lock()
+                .map_err(|e| anyhow::anyhow!("Connection lock poisoned: {e}"))?;
+            oracle::schema::init_schema(&guard, &agent_id)
+        }
+    })
+    .await??;
+    println!("  Schema ready (8 ZERO_* tables + indexes).");
+
+    // 3. Check ONNX model
+    println!("  Checking ONNX embedding model '{}'...", mgr.onnx_model());
+    let embedding = oracle::OracleEmbedding::new(conn.clone(), mgr.onnx_model());
+    match embedding.check_onnx_model().await {
+        Ok(true) => println!("  ONNX model loaded and ready."),
+        Ok(false) => {
+            println!("  WARNING: ONNX model '{}' not found in USER_MINING_MODELS.", mgr.onnx_model());
+            println!("  Load it with: EXEC DBMS_VECTOR.LOAD_ONNX_MODEL(...)");
+        }
+        Err(e) => {
+            println!("  WARNING: Could not verify ONNX model: {e}");
+        }
+    }
+
+    // 4. Seed prompts from workspace
+    println!("  Seeding prompts from workspace...");
+    let workspace_dir = config.workspace_dir.clone();
+    let prompt_count = tokio::task::spawn_blocking({
+        let conn = conn.clone();
+        let agent_id = agent_id.clone();
+        move || {
+            let store = oracle::OraclePromptStore::new(conn, &agent_id);
+            store.seed_from_workspace(&workspace_dir)
+        }
+    })
+    .await??;
+    println!("  Seeded {prompt_count} prompt(s) from workspace.");
+
+    // 5. Summary
+    println!();
+    println!("  Setup complete!");
+    println!("  Agent ID:  {agent_id}");
+    println!("  Database:  {}:{}/{}", config.oracle.host, config.oracle.port, config.oracle.service);
+    println!();
+
+    Ok(())
+}
+
+async fn handle_oracle_inspect(config: &Config, table: &str, search: Option<&str>) -> Result<()> {
+    use zeroclaw::oracle;
+
+    // Connect to Oracle
+    let mgr = tokio::task::spawn_blocking({
+        let oracle_config = config.oracle.clone();
+        move || oracle::OracleConnectionManager::new(&oracle_config)
+    })
+    .await??;
+
+    let conn = mgr.conn();
+    let agent_id = mgr.agent_id().to_string();
+
+    // Helper struct for table row counts
+    struct TableCount {
+        name: &'static str,
+        table_name: &'static str,
+    }
+
+    let tables = vec![
+        TableCount { name: "Memories", table_name: "ZERO_MEMORIES" },
+        TableCount { name: "Sessions", table_name: "ZERO_SESSIONS" },
+        TableCount { name: "Transcripts", table_name: "ZERO_TRANSCRIPTS" },
+        TableCount { name: "State", table_name: "ZERO_STATE" },
+        TableCount { name: "Daily Notes", table_name: "ZERO_DAILY_NOTES" },
+        TableCount { name: "Prompts", table_name: "ZERO_PROMPTS" },
+        TableCount { name: "Config", table_name: "ZERO_CONFIG" },
+        TableCount { name: "Meta", table_name: "ZERO_META" },
+    ];
+
+    // Gather all row counts
+    let counts = tokio::task::spawn_blocking({
+        let conn = conn.clone();
+        let agent_id = agent_id.clone();
+        move || -> anyhow::Result<Vec<(&'static str, i64)>> {
+            let guard = conn
+                .lock()
+                .map_err(|e| anyhow::anyhow!("Connection lock poisoned: {e}"))?;
+            let mut results = Vec::new();
+            for t in &tables {
+                let sql = format!(
+                    "SELECT COUNT(*) FROM {} WHERE agent_id = :1",
+                    t.table_name
+                );
+                let count: i64 = match guard.query_row_as(&sql, &[&agent_id]) {
+                    Ok(c) => c,
+                    Err(_) => -1, // table might not exist
+                };
+                results.push((t.name, count));
+            }
+            Ok(results)
+        }
+    })
+    .await??;
+
+    // Print dashboard
+    println!();
+    println!("  =======================================");
+    println!("    ZeroOraClaw Oracle Inspector");
+    println!("  =======================================");
+    println!();
+    println!("  Agent ID: {agent_id}");
+    println!();
+    println!("  {:<20} {:>6}", "Table", "Rows");
+    println!("  {}", "-".repeat(27));
+    for (name, count) in &counts {
+        if *count < 0 {
+            println!("  {:<20} {:>6}", name, "N/A");
+        } else {
+            println!("  {:<20} {:>6}", name, count);
+        }
+    }
+    println!();
+
+    // If a specific table is requested, show sample rows
+    let table_lower = table.to_ascii_lowercase();
+    if table_lower != "all" {
+        let conn2 = conn.clone();
+        let agent_id2 = agent_id.clone();
+        let search_owned = search.map(|s| s.to_string());
+        let table_owned = table_lower.clone();
+
+        let sample_output = tokio::task::spawn_blocking(move || -> anyhow::Result<String> {
+            let guard = conn2
+                .lock()
+                .map_err(|e| anyhow::anyhow!("Connection lock poisoned: {e}"))?;
+            let mut out = String::new();
+
+            match table_owned.as_str() {
+                "memories" => {
+                    out.push_str("  Recent Memories (top 10):\n");
+                    out.push_str(&format!("  {:<36} {:<10} {}\n", "KEY", "CATEGORY", "CONTENT (truncated)"));
+                    out.push_str(&format!("  {}\n", "-".repeat(70)));
+                    let rows = guard.query(
+                        "SELECT key, category, content FROM ZERO_MEMORIES
+                         WHERE agent_id = :1 ORDER BY updated_at DESC FETCH FIRST 10 ROWS ONLY",
+                        &[&agent_id2],
+                    )?;
+                    for row_result in rows {
+                        let row = row_result?;
+                        let key: String = row.get(0)?;
+                        let cat: String = row.get(1)?;
+                        let content: String = row.get(2)?;
+                        let truncated = if content.len() > 60 {
+                            format!("{}...", &content[..57])
+                        } else {
+                            content
+                        };
+                        out.push_str(&format!("  {:<36} {:<10} {}\n", key, cat, truncated));
+                    }
+                }
+                "sessions" => {
+                    out.push_str("  Recent Sessions (top 10):\n");
+                    out.push_str(&format!("  {:<40} {}\n", "SESSION_KEY", "UPDATED_AT"));
+                    out.push_str(&format!("  {}\n", "-".repeat(60)));
+                    let rows = guard.query(
+                        "SELECT session_key, TO_CHAR(updated_at, 'YYYY-MM-DD HH24:MI:SS') FROM ZERO_SESSIONS
+                         WHERE agent_id = :1 ORDER BY updated_at DESC FETCH FIRST 10 ROWS ONLY",
+                        &[&agent_id2],
+                    )?;
+                    for row_result in rows {
+                        let row = row_result?;
+                        let key: String = row.get(0)?;
+                        let ts: String = row.get(1)?;
+                        out.push_str(&format!("  {:<40} {}\n", key, ts));
+                    }
+                }
+                "state" => {
+                    out.push_str("  State Entries:\n");
+                    out.push_str(&format!("  {:<30} {}\n", "KEY", "VALUE (truncated)"));
+                    out.push_str(&format!("  {}\n", "-".repeat(60)));
+                    let rows = guard.query(
+                        "SELECT state_key, value FROM ZERO_STATE
+                         WHERE agent_id = :1 ORDER BY state_key",
+                        &[&agent_id2],
+                    )?;
+                    for row_result in rows {
+                        let row = row_result?;
+                        let key: String = row.get(0)?;
+                        let val: Option<String> = row.get(1)?;
+                        let val_str = val.unwrap_or_default();
+                        let truncated = if val_str.len() > 50 {
+                            format!("{}...", &val_str[..47])
+                        } else {
+                            val_str
+                        };
+                        out.push_str(&format!("  {:<30} {}\n", key, truncated));
+                    }
+                }
+                "prompts" => {
+                    out.push_str("  Prompts:\n");
+                    out.push_str(&format!("  {:<20} {:>8}  {}\n", "NAME", "LENGTH", "PREVIEW"));
+                    out.push_str(&format!("  {}\n", "-".repeat(60)));
+                    let rows = guard.query(
+                        "SELECT prompt_name, content FROM ZERO_PROMPTS
+                         WHERE agent_id = :1 ORDER BY prompt_name",
+                        &[&agent_id2],
+                    )?;
+                    for row_result in rows {
+                        let row = row_result?;
+                        let name: String = row.get(0)?;
+                        let content: String = row.get(1)?;
+                        let preview = if content.len() > 40 {
+                            format!("{}...", &content[..37])
+                        } else {
+                            content.clone()
+                        };
+                        out.push_str(&format!("  {:<20} {:>8}  {}\n", name, content.len(), preview));
+                    }
+                }
+                "notes" | "daily_notes" => {
+                    out.push_str("  Daily Notes (top 10):\n");
+                    out.push_str(&format!("  {:<12} {:<30} {}\n", "DATE", "TITLE", "CONTENT (truncated)"));
+                    out.push_str(&format!("  {}\n", "-".repeat(70)));
+                    let rows = guard.query(
+                        "SELECT TO_CHAR(note_date, 'YYYY-MM-DD'), title, content FROM ZERO_DAILY_NOTES
+                         WHERE agent_id = :1 ORDER BY note_date DESC FETCH FIRST 10 ROWS ONLY",
+                        &[&agent_id2],
+                    )?;
+                    for row_result in rows {
+                        let row = row_result?;
+                        let date: String = row.get(0)?;
+                        let title: Option<String> = row.get(1)?;
+                        let content: String = row.get(2)?;
+                        let truncated = if content.len() > 40 {
+                            format!("{}...", &content[..37])
+                        } else {
+                            content
+                        };
+                        out.push_str(&format!(
+                            "  {:<12} {:<30} {}\n",
+                            date,
+                            title.unwrap_or_default(),
+                            truncated,
+                        ));
+                    }
+                }
+                "transcripts" => {
+                    out.push_str("  Recent Transcripts (top 10):\n");
+                    out.push_str(&format!("  {:<10} {:<12} {}\n", "ROLE", "SESSION", "CONTENT (truncated)"));
+                    out.push_str(&format!("  {}\n", "-".repeat(70)));
+                    let rows = guard.query(
+                        "SELECT role, session_id, content FROM ZERO_TRANSCRIPTS
+                         WHERE agent_id = :1 ORDER BY created_at DESC FETCH FIRST 10 ROWS ONLY",
+                        &[&agent_id2],
+                    )?;
+                    for row_result in rows {
+                        let row = row_result?;
+                        let role: String = row.get(0)?;
+                        let sid: Option<String> = row.get(1)?;
+                        let content: String = row.get(2)?;
+                        let truncated = if content.len() > 50 {
+                            format!("{}...", &content[..47])
+                        } else {
+                            content
+                        };
+                        out.push_str(&format!(
+                            "  {:<10} {:<12} {}\n",
+                            role,
+                            sid.unwrap_or_else(|| "-".into()),
+                            truncated,
+                        ));
+                    }
+                }
+                "config" => {
+                    out.push_str("  Config Entries:\n");
+                    out.push_str(&format!("  {:<30} {}\n", "KEY", "VALUE (truncated)"));
+                    out.push_str(&format!("  {}\n", "-".repeat(60)));
+                    let rows = guard.query(
+                        "SELECT config_key, config_value FROM ZERO_CONFIG
+                         WHERE agent_id = :1 ORDER BY config_key",
+                        &[&agent_id2],
+                    )?;
+                    for row_result in rows {
+                        let row = row_result?;
+                        let key: String = row.get(0)?;
+                        let val: Option<String> = row.get(1)?;
+                        let val_str = val.unwrap_or_default();
+                        let truncated = if val_str.len() > 50 {
+                            format!("{}...", &val_str[..47])
+                        } else {
+                            val_str
+                        };
+                        out.push_str(&format!("  {:<30} {}\n", key, truncated));
+                    }
+                }
+                other => {
+                    out.push_str(&format!(
+                        "  Unknown table '{}'. Valid: memories, sessions, state, prompts, notes, transcripts, config\n",
+                        other,
+                    ));
+                }
+            }
+            Ok(out)
+        })
+        .await??;
+
+        print!("{sample_output}");
+
+        // If --search provided with memories, do a vector similarity search
+        if table_lower == "memories" {
+            if let Some(query) = search {
+                println!();
+                println!("  Vector Similarity Search: \"{query}\"");
+                println!("  {}", "-".repeat(50));
+
+                let embedding_provider = oracle::OracleEmbedding::new(conn.clone(), mgr.onnx_model());
+                use zeroclaw::memory::embeddings::EmbeddingProvider;
+                match embedding_provider.embed_one(query).await {
+                    Ok(query_vec) => {
+                        let vec_str = oracle::vector::vec_to_oracle_string(&query_vec);
+                        let results = tokio::task::spawn_blocking({
+                            let conn = conn.clone();
+                            let agent_id = agent_id.clone();
+                            move || -> anyhow::Result<Vec<(String, String, f64)>> {
+                                let guard = conn
+                                    .lock()
+                                    .map_err(|e| anyhow::anyhow!("Lock poisoned: {e}"))?;
+                                let rows = guard.query(
+                                    "SELECT key, content,
+                                            VECTOR_DISTANCE(embedding, TO_VECTOR(:1, 384, FLOAT32), COSINE) AS dist
+                                     FROM ZERO_MEMORIES
+                                     WHERE agent_id = :2 AND embedding IS NOT NULL
+                                     ORDER BY dist ASC
+                                     FETCH FIRST 5 ROWS ONLY",
+                                    &[&vec_str, &agent_id],
+                                )?;
+                                let mut results = Vec::new();
+                                for row_result in rows {
+                                    let row = row_result?;
+                                    let key: String = row.get(0)?;
+                                    let content: String = row.get(1)?;
+                                    let dist: f64 = row.get(2)?;
+                                    let similarity = oracle::vector::similarity_from_distance(dist);
+                                    results.push((key, content, similarity));
+                                }
+                                Ok(results)
+                            }
+                        })
+                        .await??;
+
+                        if results.is_empty() {
+                            println!("  No results with embeddings found.");
+                        } else {
+                            println!("  {:<36} {:>6}  {}", "KEY", "SCORE", "CONTENT (truncated)");
+                            println!("  {}", "-".repeat(70));
+                            for (key, content, score) in &results {
+                                let truncated = if content.len() > 40 {
+                                    format!("{}...", &content[..37])
+                                } else {
+                                    content.clone()
+                                };
+                                println!("  {:<36} {:>5.2}  {}", key, score, truncated);
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        println!("  Failed to generate query embedding: {e}");
+                        println!("  Ensure the ONNX model is loaded (run: zeroclaw setup-oracle)");
+                    }
+                }
+                println!();
+            }
+        }
+    }
+
+    Ok(())
 }
 
 fn handle_estop_command(
