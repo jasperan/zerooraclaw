@@ -42,7 +42,12 @@ impl OracleEmbedding {
         }
     }
 
-    /// Verify the ONNX model is loaded in `USER_MINING_MODELS`.
+    /// Verify the ONNX model is loaded in the database.
+    ///
+    /// Supports both unqualified (`ALL_MINILM_L12_V2`) and schema-qualified
+    /// (`SCHEMA.ALL_MINILM_L12_V2`) model names.  Unqualified names are
+    /// checked against `USER_MINING_MODELS`; qualified names are checked
+    /// against `ALL_MINING_MODELS` with the owner filter.
     ///
     /// Returns `Ok(true)` if found, `Ok(false)` if not, `Err` on DB error.
     pub async fn check_onnx_model(&self) -> anyhow::Result<bool> {
@@ -53,9 +58,16 @@ impl OracleEmbedding {
             let guard = conn
                 .lock()
                 .map_err(|e| anyhow::anyhow!("Connection lock poisoned: {e}"))?;
-            let sql = "SELECT COUNT(*) FROM USER_MINING_MODELS WHERE MODEL_NAME = :1";
-            let row = guard.query_row_as::<i64>(sql, &[&model])?;
-            Ok(row > 0)
+
+            if let Some((schema, name)) = model.split_once('.') {
+                let sql = "SELECT COUNT(*) FROM ALL_MINING_MODELS WHERE OWNER = :1 AND MODEL_NAME = :2";
+                let row = guard.query_row_as::<i64>(sql, &[&schema.to_uppercase(), &name.to_uppercase()])?;
+                Ok(row > 0)
+            } else {
+                let sql = "SELECT COUNT(*) FROM USER_MINING_MODELS WHERE MODEL_NAME = :1";
+                let row = guard.query_row_as::<i64>(sql, &[&model])?;
+                Ok(row > 0)
+            }
         })
         .await?
     }
@@ -65,9 +77,9 @@ impl OracleEmbedding {
     /// The SQL uses `VECTOR_EMBEDDING(<model> USING :1 AS DATA)` which
     /// returns the vector as a string like `[0.123, -0.456, ...]`.
     fn embed_text_sync(conn: &Connection, model_name: &str, text: &str) -> anyhow::Result<Vec<f32>> {
-        // Oracle VECTOR_EMBEDDING returns a vector; we SELECT TO_CHAR to get a parseable string.
+        // Oracle 23ai: use VECTOR_SERIALIZE(... RETURNING CLOB) to serialize the vector.
         let sql = format!(
-            "SELECT TO_CHAR(VECTOR_EMBEDDING({model_name} USING :1 AS DATA)) FROM DUAL"
+            "SELECT VECTOR_SERIALIZE(VECTOR_EMBEDDING({model_name} USING :1 AS DATA) RETURNING CLOB) FROM DUAL"
         );
         let result: String = conn.query_row_as(&sql, &[&text])?;
         parse_oracle_vector(&result)
