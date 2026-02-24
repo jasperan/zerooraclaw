@@ -459,7 +459,7 @@ async fn run_quick_setup_with_home(
         .await
         .context("Failed to create workspace directory")?;
 
-    let provider_name = provider.unwrap_or("openrouter").to_string();
+    let provider_name = provider.unwrap_or("ollama").to_string();
     let model = model_override
         .map(str::to_string)
         .unwrap_or_else(|| default_model_for_provider(&provider_name));
@@ -599,14 +599,22 @@ async fn run_quick_setup_with_home(
     println!();
     println!("  {}", style("Next steps:").white().bold());
     if credential_override.is_none() {
-        println!("    1. Set your API key:  export OPENROUTER_API_KEY=\"sk-...\"");
-        println!("    2. Or edit:           ~/.zeroclaw/config.toml");
-        println!("    3. Chat:              zeroclaw agent -m \"Hello!\"");
-        println!("    4. Gateway:           zeroclaw gateway");
+        if provider_supports_keyless_local_usage(&provider_name) {
+            println!("    1. Make sure Ollama is running:  ollama serve");
+            println!("    2. Pull a model:                 ollama pull {}", model);
+            println!("    3. Chat:                         zerooraclaw agent -m \"Hello!\"");
+            println!("    4. Gateway:                      zerooraclaw gateway");
+        } else {
+            let env_var = provider_env_var(&provider_name);
+            println!("    1. Set your API key:  export {}=\"sk-...\"", env_var);
+            println!("    2. Or edit:           ~/.zeroclaw/config.toml");
+            println!("    3. Chat:              zerooraclaw agent -m \"Hello!\"");
+            println!("    4. Gateway:           zerooraclaw gateway");
+        }
     } else {
-        println!("    1. Chat:     zeroclaw agent -m \"Hello!\"");
-        println!("    2. Gateway:  zeroclaw gateway");
-        println!("    3. Status:   zeroclaw status");
+        println!("    1. Chat:     zerooraclaw agent -m \"Hello!\"");
+        println!("    2. Gateway:  zerooraclaw gateway");
+        println!("    3. Status:   zerooraclaw status");
     }
     println!();
 
@@ -678,7 +686,7 @@ fn default_model_for_provider(provider: &str) -> String {
         "minimax" => "MiniMax-M2.5".into(),
         "qwen" => "qwen-plus".into(),
         "qwen-code" => "qwen3-coder-plus".into(),
-        "ollama" => "llama3.2".into(),
+        "ollama" => "qwen3:latest".into(),
         "llamacpp" => "ggml-org/gpt-oss-20b-GGUF".into(),
         "sglang" | "vllm" | "osaurus" => "default".into(),
         "gemini" => "gemini-2.5-pro".into(),
@@ -1903,17 +1911,29 @@ async fn setup_workspace() -> Result<(PathBuf, PathBuf)> {
     Ok((workspace_dir, config_path))
 }
 
+/// Check if a local Ollama instance is reachable at the given base URL.
+async fn detect_local_ollama(base_url: &str) -> bool {
+    let client = match reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(2))
+        .build()
+    {
+        Ok(c) => c,
+        Err(_) => return false,
+    };
+    client.get(base_url).send().await.is_ok()
+}
+
 // ── Step 2: Provider & API Key ───────────────────────────────────
 
 #[allow(clippy::too_many_lines)]
 async fn setup_provider(workspace_dir: &Path) -> Result<(String, String, String, Option<String>)> {
     // ── Tier selection ──
     let tiers = vec![
-        "⭐ Recommended (OpenRouter, Venice, Anthropic, OpenAI, Gemini)",
+        "🏠 Local / open-source (Ollama, llama.cpp, vLLM — no API key needed) ⭐ recommended",
+        "☁️  Cloud providers (OpenRouter, Anthropic, OpenAI, Gemini, Venice)",
         "⚡ Fast inference (Groq, Fireworks, Together AI, NVIDIA NIM)",
         "🌐 Gateway / proxy (Vercel AI, Cloudflare AI, Amazon Bedrock)",
         "🔬 Specialized (Moonshot/Kimi, GLM/Zhipu, MiniMax, Qwen/DashScope, Qianfan, Z.AI, Synthetic, OpenCode Zen, Cohere)",
-        "🏠 Local / private (Ollama, llama.cpp server, vLLM — no API key needed)",
         "🔧 Custom — bring your own OpenAI-compatible API",
     ];
 
@@ -1924,7 +1944,8 @@ async fn setup_provider(workspace_dir: &Path) -> Result<(String, String, String,
         .interact()?;
 
     let providers: Vec<(&str, &str)> = match tier_idx {
-        0 => vec![
+        0 => local_provider_choices(),
+        1 => vec![
             (
                 "openrouter",
                 "OpenRouter — 200+ models, 1 API key (recommended)",
@@ -1945,14 +1966,14 @@ async fn setup_provider(workspace_dir: &Path) -> Result<(String, String, String,
                 "Google Gemini — Gemini 2.0 Flash & Pro (supports CLI auth)",
             ),
         ],
-        1 => vec![
+        2 => vec![
             ("groq", "Groq — ultra-fast LPU inference"),
             ("fireworks", "Fireworks AI — fast open-source inference"),
             ("novita", "Novita AI — affordable open-source inference"),
             ("together-ai", "Together AI — open-source model hosting"),
             ("nvidia", "NVIDIA NIM — DeepSeek, Llama, & more"),
         ],
-        2 => vec![
+        3 => vec![
             ("vercel", "Vercel AI Gateway"),
             ("cloudflare", "Cloudflare AI Gateway"),
             (
@@ -1961,7 +1982,7 @@ async fn setup_provider(workspace_dir: &Path) -> Result<(String, String, String,
             ),
             ("bedrock", "Amazon Bedrock — AWS managed models"),
         ],
-        3 => vec![
+        4 => vec![
             (
                 "kimi-code",
                 "Kimi Code — coding-optimized Kimi API (KimiCLI)",
@@ -1992,7 +2013,6 @@ async fn setup_provider(workspace_dir: &Path) -> Result<(String, String, String,
             ("opencode", "OpenCode Zen — code-focused AI"),
             ("cohere", "Cohere — Command R+ & embeddings"),
         ],
-        4 => local_provider_choices(),
         _ => vec![], // Custom — handled below
     };
 
@@ -2102,6 +2122,22 @@ async fn setup_provider(workspace_dir: &Path) -> Result<(String, String, String,
             key
         } else {
             print_bullet("Using local Ollama at http://localhost:11434 (no API key needed).");
+            if detect_local_ollama("http://localhost:11434").await {
+                print_bullet(&format!(
+                    "{} Ollama is running and reachable!",
+                    style("✓").green().bold()
+                ));
+            } else {
+                print_bullet(&format!(
+                    "{} Ollama is not currently running. Start it with: {}",
+                    style("⚠").yellow().bold(),
+                    style("ollama serve").yellow()
+                ));
+                print_bullet(&format!(
+                    "Then pull a model: {}",
+                    style("ollama pull qwen3:latest").yellow()
+                ));
+            }
             String::new()
         }
     } else if matches!(provider_name, "llamacpp" | "llama.cpp") {
@@ -6253,6 +6289,7 @@ mod tests {
             default_model_for_provider("anthropic"),
             "claude-sonnet-4-5-20250929"
         );
+        assert_eq!(default_model_for_provider("ollama"), "qwen3:latest");
         assert_eq!(default_model_for_provider("qwen"), "qwen-plus");
         assert_eq!(default_model_for_provider("qwen-intl"), "qwen-plus");
         assert_eq!(default_model_for_provider("qwen-code"), "qwen3-coder-plus");

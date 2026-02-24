@@ -74,7 +74,7 @@ pub struct Config {
     pub api_key: Option<String>,
     /// Base URL override for provider API (e.g. "http://10.0.0.1:11434" for remote Ollama)
     pub api_url: Option<String>,
-    /// Default provider ID or alias (e.g. `"openrouter"`, `"ollama"`, `"anthropic"`). Default: `"openrouter"`.
+    /// Default provider ID or alias (e.g. `"ollama"`, `"openrouter"`, `"anthropic"`). Default: `"ollama"`.
     pub default_provider: Option<String>,
     /// Default model routed through the selected provider (e.g. `"anthropic/claude-sonnet-4-6"`).
     pub default_model: Option<String>,
@@ -3552,8 +3552,8 @@ impl Default for Config {
             config_path: zeroclaw_dir.join("config.toml"),
             api_key: None,
             api_url: None,
-            default_provider: Some("openrouter".to_string()),
-            default_model: Some("anthropic/claude-sonnet-4.6".to_string()),
+            default_provider: Some("ollama".to_string()),
+            default_model: Some("qwen3:latest".to_string()),
             default_temperature: 0.7,
             observability: ObservabilityConfig::default(),
             autonomy: AutonomyConfig::default(),
@@ -4185,9 +4185,9 @@ impl Config {
 
         // Provider override precedence:
         // 1) ZEROCLAW_PROVIDER always wins when set.
-        // 2) Legacy PROVIDER is only honored when config still uses the
-        //    default provider (openrouter) or provider is unset. This prevents
-        //    container defaults from overriding explicit custom providers.
+        // 2) Legacy PROVIDER is only honored when config still uses a
+        //    default provider (ollama or openrouter) or provider is unset.
+        //    This prevents container defaults from overriding explicit custom providers.
         if let Ok(provider) = std::env::var("ZEROCLAW_PROVIDER") {
             if !provider.is_empty() {
                 self.default_provider = Some(provider);
@@ -4195,7 +4195,8 @@ impl Config {
         } else if let Ok(provider) = std::env::var("PROVIDER") {
             let should_apply_legacy_provider =
                 self.default_provider.as_deref().map_or(true, |configured| {
-                    configured.trim().eq_ignore_ascii_case("openrouter")
+                    let c = configured.trim();
+                    c.eq_ignore_ascii_case("openrouter") || c.eq_ignore_ascii_case("ollama")
                 });
             if should_apply_legacy_provider && !provider.is_empty() {
                 self.default_provider = Some(provider);
@@ -4604,8 +4605,8 @@ mod tests {
     #[test]
     async fn config_default_has_sane_values() {
         let c = Config::default();
-        assert_eq!(c.default_provider.as_deref(), Some("openrouter"));
-        assert!(c.default_model.as_deref().unwrap().contains("claude"));
+        assert_eq!(c.default_provider.as_deref(), Some("ollama"));
+        assert!(c.default_model.as_deref().unwrap().contains("qwen3"));
         assert!((c.default_temperature - 0.7).abs() < f64::EPSILON);
         assert!(c.api_key.is_none());
         assert!(!c.skills.open_skills_enabled);
