@@ -1,0 +1,1 @@
+//! Oracle Memory trait implementation
