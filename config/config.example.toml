@@ -1,0 +1,80 @@
+# ZeroOraClaw Configuration Example
+# Copy to ~/.zerooraclaw/config.toml
+#
+# Environment variables override config file values.
+# Oracle settings: ZEROORACLAW_ORACLE_HOST, ZEROORACLAW_ORACLE_PORT, etc.
+# LLM settings: API_KEY, PROVIDER
+
+# ── LLM Provider ──────────────────────────────────────────────
+
+default_provider = "ollama"
+default_model = "qwen3:latest"
+default_temperature = 0.7
+
+# For cloud providers, set your API key:
+# api_key = "sk-..."
+# default_provider = "openrouter"
+# default_model = "anthropic/claude-sonnet-4-20250514"
+
+# ── Oracle AI Database (the ONLY storage backend) ─────────────
+
+[oracle]
+mode = "freepdb"                    # "freepdb" for local Docker, "adb" for Autonomous DB
+host = "localhost"
+port = 1521
+service = "FREEPDB1"
+user = "zerooraclaw"
+password = "ZeroOraClaw2026"
+onnx_model = "ALL_MINILM_L12_V2"   # In-database ONNX embedding model (384-dim)
+agent_id = "default"                # Multi-agent namespace isolation
+max_connections = 5
+
+# For Oracle Autonomous Database (cloud):
+# [oracle]
+# mode = "adb"
+# wallet_path = "/path/to/wallet"
+# service = "mydb_tp"
+# user = "zerooraclaw"
+# password = "YourSecurePassword"
+# onnx_model = "ALL_MINILM_L12_V2"
+# agent_id = "default"
+
+# ── Memory (always Oracle-backed) ─────────────────────────────
+
+[memory]
+backend = "oracle"
+auto_save = true
+embedding_provider = "oracle-onnx"
+embedding_dimensions = 384
+vector_weight = 0.7
+keyword_weight = 0.3
+min_relevance_score = 0.3
+
+# ── Agent Behavior ────────────────────────────────────────────
+
+[agent]
+max_tool_iterations = 10
+max_history_messages = 50
+
+# ── Gateway ───────────────────────────────────────────────────
+
+[gateway]
+port = 42617
+host = "127.0.0.1"
+# host = "[::]"              # Bind all interfaces (required in Docker)
+# allow_public_bind = true   # Required when host is not localhost
+
+# ── Channels (uncomment to enable) ────────────────────────────
+
+# [channels_config.telegram]
+# enabled = true
+# token = "your-bot-token"
+
+# [channels_config.discord]
+# enabled = true
+# token = "your-bot-token"
+
+# [channels_config.slack]
+# enabled = true
+# bot_token = "xoxb-..."
+# app_token = "xapp-..."
