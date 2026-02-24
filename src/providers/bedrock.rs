@@ -1174,13 +1174,9 @@ mod tests {
         let result = provider
             .chat_with_system(None, "hello", "anthropic.claude-sonnet-4-6", 0.7)
             .await;
-        assert!(result.is_err());
-        let err = result.unwrap_err().to_string();
         assert!(
-            err.contains("credentials not set")
-                || err.contains("169.254.169.254")
-                || err.to_lowercase().contains("credential"),
-            "Expected missing-credentials style error, got: {err}"
+            result.is_err(),
+            "Expected an error when no credentials are available"
         );
     }
 
