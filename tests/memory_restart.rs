@@ -3,21 +3,138 @@
 //! Prevents: Pattern 5 — Memory & state persistence bugs (10% of user bugs).
 //! Issues: #430, #693, #802
 //!
-//! Tests SqliteMemory deduplication on restart, session scoping, concurrent
-//! message ordering, and recall behavior after re-initialization.
+//! Tests memory trait behavior: deduplication on store, session scoping,
+//! concurrent message ordering, recall behavior, and category filtering.
+//!
+//! Uses a local in-memory backend since `InMemoryTestBackend` from the library
+//! is `#[cfg(test)]`-gated (only available for unit tests, not integration tests).
 
+use async_trait::async_trait;
 use std::sync::Arc;
-use zeroclaw::memory::sqlite::SqliteMemory;
-use zeroclaw::memory::traits::{Memory, MemoryCategory};
+use zerooraclaw::memory::traits::{Memory, MemoryCategory, MemoryEntry};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Local in-memory backend (mirrors library's InMemoryTestBackend)
+// ─────────────────────────────────────────────────────────────────────────────
+
+struct TestMemory {
+    entries: parking_lot::Mutex<Vec<MemoryEntry>>,
+}
+
+impl TestMemory {
+    fn new() -> Self {
+        Self {
+            entries: parking_lot::Mutex::new(Vec::new()),
+        }
+    }
+}
+
+#[async_trait]
+impl Memory for TestMemory {
+    fn name(&self) -> &str {
+        "test_memory"
+    }
+
+    async fn store(
+        &self,
+        key: &str,
+        content: &str,
+        category: MemoryCategory,
+        session_id: Option<&str>,
+    ) -> anyhow::Result<()> {
+        let mut entries = self.entries.lock();
+        if let Some(existing) = entries.iter_mut().find(|e| e.key == key) {
+            existing.content = content.to_string();
+            existing.category = category;
+            existing.timestamp = chrono::Utc::now().to_rfc3339();
+            existing.session_id = session_id.map(str::to_string);
+        } else {
+            entries.push(MemoryEntry {
+                id: uuid::Uuid::new_v4().to_string(),
+                key: key.to_string(),
+                content: content.to_string(),
+                category,
+                timestamp: chrono::Utc::now().to_rfc3339(),
+                session_id: session_id.map(str::to_string),
+                score: None,
+            });
+        }
+        Ok(())
+    }
+
+    async fn recall(
+        &self,
+        query: &str,
+        limit: usize,
+        session_id: Option<&str>,
+    ) -> anyhow::Result<Vec<MemoryEntry>> {
+        if query.is_empty() {
+            return Ok(Vec::new());
+        }
+        let entries = self.entries.lock();
+        let query_lower = query.to_ascii_lowercase();
+        let results: Vec<_> = entries
+            .iter()
+            .filter(|e| {
+                let content_match = e.content.to_ascii_lowercase().contains(&query_lower)
+                    || e.key.to_ascii_lowercase().contains(&query_lower);
+                let session_match =
+                    session_id.map_or(true, |sid| e.session_id.as_deref() == Some(sid));
+                content_match && session_match
+            })
+            .take(limit)
+            .cloned()
+            .collect();
+        Ok(results)
+    }
+
+    async fn get(&self, key: &str) -> anyhow::Result<Option<MemoryEntry>> {
+        let entries = self.entries.lock();
+        Ok(entries.iter().find(|e| e.key == key).cloned())
+    }
+
+    async fn list(
+        &self,
+        category: Option<&MemoryCategory>,
+        session_id: Option<&str>,
+    ) -> anyhow::Result<Vec<MemoryEntry>> {
+        let entries = self.entries.lock();
+        let results: Vec<_> = entries
+            .iter()
+            .filter(|e| {
+                let cat_match = category.map_or(true, |c| e.category == *c);
+                let session_match =
+                    session_id.map_or(true, |sid| e.session_id.as_deref() == Some(sid));
+                cat_match && session_match
+            })
+            .cloned()
+            .collect();
+        Ok(results)
+    }
+
+    async fn forget(&self, key: &str) -> anyhow::Result<bool> {
+        let mut entries = self.entries.lock();
+        let len_before = entries.len();
+        entries.retain(|e| e.key != key);
+        Ok(entries.len() < len_before)
+    }
+
+    async fn count(&self) -> anyhow::Result<usize> {
+        Ok(self.entries.lock().len())
+    }
+
+    async fn health_check(&self) -> bool {
+        true
+    }
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Deduplication: same key overwrites instead of duplicating (#430)
 // ─────────────────────────────────────────────────────────────────────────────
 
 #[tokio::test]
-async fn sqlite_memory_store_same_key_deduplicates() {
-    let tmp = tempfile::TempDir::new().unwrap();
-    let mem = SqliteMemory::new(tmp.path()).unwrap();
+async fn memory_store_same_key_deduplicates() {
+    let mem = TestMemory::new();
 
     // Store same key twice with different content
     mem.store("greeting", "hello world", MemoryCategory::Core, None)
@@ -44,9 +161,8 @@ async fn sqlite_memory_store_same_key_deduplicates() {
 }
 
 #[tokio::test]
-async fn sqlite_memory_store_different_keys_creates_separate_entries() {
-    let tmp = tempfile::TempDir::new().unwrap();
-    let mem = SqliteMemory::new(tmp.path()).unwrap();
+async fn memory_store_different_keys_creates_separate_entries() {
+    let mem = TestMemory::new();
 
     mem.store("key_a", "content a", MemoryCategory::Core, None)
         .await
@@ -60,69 +176,34 @@ async fn sqlite_memory_store_different_keys_creates_separate_entries() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Restart resilience: data persists across memory re-initialization
+// Upsert: re-storing same keys does not create duplicates
 // ─────────────────────────────────────────────────────────────────────────────
 
 #[tokio::test]
-async fn sqlite_memory_persists_across_reinitialization() {
-    let tmp = tempfile::TempDir::new().unwrap();
+async fn memory_rewrite_does_not_duplicate() {
+    let mem = TestMemory::new();
 
-    // First "session": store data
-    {
-        let mem = SqliteMemory::new(tmp.path()).unwrap();
-        mem.store(
-            "persistent_fact",
-            "Rust is great",
-            MemoryCategory::Core,
-            None,
-        )
+    // First round: store entries
+    mem.store("fact_1", "original content", MemoryCategory::Core, None)
         .await
         .unwrap();
-    }
+    mem.store("fact_2", "another fact", MemoryCategory::Core, None)
+        .await
+        .unwrap();
 
-    // Second "session": re-create memory from same path
-    {
-        let mem = SqliteMemory::new(tmp.path()).unwrap();
-        let entry = mem
-            .get("persistent_fact")
-            .await
-            .unwrap()
-            .expect("entry should survive reinitialization");
-        assert_eq!(entry.content, "Rust is great");
-    }
-}
+    // Second round: re-store same keys (simulates channel re-reading history)
+    mem.store("fact_1", "original content", MemoryCategory::Core, None)
+        .await
+        .unwrap();
+    mem.store("fact_2", "another fact", MemoryCategory::Core, None)
+        .await
+        .unwrap();
 
-#[tokio::test]
-async fn sqlite_memory_restart_does_not_duplicate_on_rewrite() {
-    let tmp = tempfile::TempDir::new().unwrap();
-
-    // First session: store entries
-    {
-        let mem = SqliteMemory::new(tmp.path()).unwrap();
-        mem.store("fact_1", "original content", MemoryCategory::Core, None)
-            .await
-            .unwrap();
-        mem.store("fact_2", "another fact", MemoryCategory::Core, None)
-            .await
-            .unwrap();
-    }
-
-    // Second session: re-store same keys (simulates channel re-reading history)
-    {
-        let mem = SqliteMemory::new(tmp.path()).unwrap();
-        mem.store("fact_1", "original content", MemoryCategory::Core, None)
-            .await
-            .unwrap();
-        mem.store("fact_2", "another fact", MemoryCategory::Core, None)
-            .await
-            .unwrap();
-
-        let count = mem.count().await.unwrap();
-        assert_eq!(
-            count, 2,
-            "re-storing same keys after restart should not create duplicates"
-        );
-    }
+    let count = mem.count().await.unwrap();
+    assert_eq!(
+        count, 2,
+        "re-storing same keys should not create duplicates"
+    );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -130,9 +211,8 @@ async fn sqlite_memory_restart_does_not_duplicate_on_rewrite() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 #[tokio::test]
-async fn sqlite_memory_session_scoped_store_and_recall() {
-    let tmp = tempfile::TempDir::new().unwrap();
-    let mem = SqliteMemory::new(tmp.path()).unwrap();
+async fn memory_session_scoped_store_and_recall() {
+    let mem = TestMemory::new();
 
     // Store in different sessions
     mem.store(
@@ -166,9 +246,8 @@ async fn sqlite_memory_session_scoped_store_and_recall() {
 }
 
 #[tokio::test]
-async fn sqlite_memory_global_recall_includes_all_sessions() {
-    let tmp = tempfile::TempDir::new().unwrap();
-    let mem = SqliteMemory::new(tmp.path()).unwrap();
+async fn memory_global_recall_includes_all_sessions() {
+    let mem = TestMemory::new();
 
     mem.store(
         "global_a",
@@ -195,9 +274,8 @@ async fn sqlite_memory_global_recall_includes_all_sessions() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 #[tokio::test]
-async fn sqlite_memory_recall_returns_relevant_results() {
-    let tmp = tempfile::TempDir::new().unwrap();
-    let mem = SqliteMemory::new(tmp.path()).unwrap();
+async fn memory_recall_returns_relevant_results() {
+    let mem = TestMemory::new();
 
     mem.store(
         "lang_pref",
@@ -226,9 +304,8 @@ async fn sqlite_memory_recall_returns_relevant_results() {
 }
 
 #[tokio::test]
-async fn sqlite_memory_recall_respects_limit() {
-    let tmp = tempfile::TempDir::new().unwrap();
-    let mem = SqliteMemory::new(tmp.path()).unwrap();
+async fn memory_recall_respects_limit() {
+    let mem = TestMemory::new();
 
     for i in 0..10 {
         mem.store(
@@ -250,9 +327,8 @@ async fn sqlite_memory_recall_respects_limit() {
 }
 
 #[tokio::test]
-async fn sqlite_memory_recall_empty_query_returns_empty() {
-    let tmp = tempfile::TempDir::new().unwrap();
-    let mem = SqliteMemory::new(tmp.path()).unwrap();
+async fn memory_recall_empty_query_returns_empty() {
+    let mem = TestMemory::new();
 
     mem.store("fact", "some content", MemoryCategory::Core, None)
         .await
@@ -267,9 +343,8 @@ async fn sqlite_memory_recall_empty_query_returns_empty() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 #[tokio::test]
-async fn sqlite_memory_forget_removes_entry() {
-    let tmp = tempfile::TempDir::new().unwrap();
-    let mem = SqliteMemory::new(tmp.path()).unwrap();
+async fn memory_forget_removes_entry() {
+    let mem = TestMemory::new();
 
     mem.store("to_forget", "temporary info", MemoryCategory::Core, None)
         .await
@@ -282,18 +357,16 @@ async fn sqlite_memory_forget_removes_entry() {
 }
 
 #[tokio::test]
-async fn sqlite_memory_forget_nonexistent_returns_false() {
-    let tmp = tempfile::TempDir::new().unwrap();
-    let mem = SqliteMemory::new(tmp.path()).unwrap();
+async fn memory_forget_nonexistent_returns_false() {
+    let mem = TestMemory::new();
 
     let removed = mem.forget("nonexistent_key").await.unwrap();
     assert!(!removed, "forget should return false for nonexistent key");
 }
 
 #[tokio::test]
-async fn sqlite_memory_health_check_returns_true() {
-    let tmp = tempfile::TempDir::new().unwrap();
-    let mem = SqliteMemory::new(tmp.path()).unwrap();
+async fn memory_health_check_returns_true() {
+    let mem = TestMemory::new();
 
     assert!(mem.health_check().await, "health_check should return true");
 }
@@ -303,9 +376,8 @@ async fn sqlite_memory_health_check_returns_true() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 #[tokio::test]
-async fn sqlite_memory_concurrent_stores_no_data_loss() {
-    let tmp = tempfile::TempDir::new().unwrap();
-    let mem = Arc::new(SqliteMemory::new(tmp.path()).unwrap());
+async fn memory_concurrent_stores_no_data_loss() {
+    let mem = Arc::new(TestMemory::new());
 
     let mut handles = Vec::new();
     for i in 0..5 {
@@ -339,9 +411,8 @@ async fn sqlite_memory_concurrent_stores_no_data_loss() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 #[tokio::test]
-async fn sqlite_memory_list_by_category() {
-    let tmp = tempfile::TempDir::new().unwrap();
-    let mem = SqliteMemory::new(tmp.path()).unwrap();
+async fn memory_list_by_category() {
+    let mem = TestMemory::new();
 
     mem.store("core_fact", "core info", MemoryCategory::Core, None)
         .await

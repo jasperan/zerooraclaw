@@ -11,18 +11,18 @@ use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::json;
 use std::sync::{Arc, Mutex};
-use zeroclaw::agent::agent::Agent;
-use zeroclaw::agent::dispatcher::{NativeToolDispatcher, XmlToolDispatcher};
-use zeroclaw::agent::memory_loader::MemoryLoader;
-use zeroclaw::config::MemoryConfig;
-use zeroclaw::memory;
-use zeroclaw::memory::Memory;
-use zeroclaw::observability::{NoopObserver, Observer};
-use zeroclaw::providers::traits::ChatMessage;
-use zeroclaw::providers::{
+use zerooraclaw::agent::agent::Agent;
+use zerooraclaw::agent::dispatcher::{NativeToolDispatcher, XmlToolDispatcher};
+use zerooraclaw::agent::memory_loader::MemoryLoader;
+use zerooraclaw::config::MemoryConfig;
+use zerooraclaw::memory;
+use zerooraclaw::memory::Memory;
+use zerooraclaw::observability::{NoopObserver, Observer};
+use zerooraclaw::providers::traits::ChatMessage;
+use zerooraclaw::providers::{
     ChatRequest, ChatResponse, ConversationMessage, Provider, ProviderRuntimeOptions, ToolCall,
 };
-use zeroclaw::tools::{Tool, ToolResult};
+use zerooraclaw::tools::{Tool, ToolResult};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Mock infrastructure
@@ -664,8 +664,8 @@ async fn e2e_empty_memory_context_passthrough() {
 #[tokio::test]
 #[ignore]
 async fn e2e_live_openai_codex_multi_turn() {
-    use zeroclaw::providers::openai_codex::OpenAiCodexProvider;
-    use zeroclaw::providers::traits::Provider;
+    use zerooraclaw::providers::openai_codex::OpenAiCodexProvider;
+    use zerooraclaw::providers::traits::Provider;
 
     let provider = OpenAiCodexProvider::new(&ProviderRuntimeOptions::default());
     let model = "gpt-5.3-codex";
