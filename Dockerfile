@@ -5,12 +5,24 @@ FROM rust:1.93-slim@sha256:9663b80a1621253d30b146454f903de48f0af925c967be48c8474
 
 WORKDIR /app
 
-# Install build dependencies
+# Install build dependencies (including Oracle Instant Client for oracle crate)
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     apt-get update && apt-get install -y \
         pkg-config \
+        libaio1 wget unzip \
+    && wget -q https://download.oracle.com/otn_software/linux/instantclient/2350000/instantclient-basiclite-linux.x64-23.5.0.0.0dbru.zip \
+    && wget -q https://download.oracle.com/otn_software/linux/instantclient/2350000/instantclient-sdk-linux.x64-23.5.0.0.0dbru.zip \
+    && unzip instantclient-basiclite-linux.x64-23.5.0.0.0dbru.zip -d /opt/oracle \
+    && unzip instantclient-sdk-linux.x64-23.5.0.0.0dbru.zip -d /opt/oracle \
+    && rm -f instantclient-*.zip \
+    && echo "/opt/oracle/instantclient_23_5" > /etc/ld.so.conf.d/oracle.conf \
+    && ldconfig \
     && rm -rf /var/lib/apt/lists/*
+
+ENV LD_LIBRARY_PATH=/opt/oracle/instantclient_23_5:$LD_LIBRARY_PATH
+ENV OCI_LIB_DIR=/opt/oracle/instantclient_23_5
+ENV OCI_INC_DIR=/opt/oracle/instantclient_23_5/sdk/include
 
 # 1. Copy manifests to cache dependencies
 COPY Cargo.toml Cargo.lock ./
@@ -41,10 +53,10 @@ RUN mkdir -p web/dist && \
         '  <head>' \
         '    <meta charset="utf-8" />' \
         '    <meta name="viewport" content="width=device-width,initial-scale=1" />' \
-        '    <title>ZeroClaw Dashboard</title>' \
+        '    <title>ZeroOraClaw Dashboard</title>' \
         '  </head>' \
         '  <body>' \
-        '    <h1>ZeroClaw Dashboard Unavailable</h1>' \
+        '    <h1>ZeroOraClaw Dashboard Unavailable</h1>' \
         '    <p>Frontend assets are not bundled in this build. Build the web UI to populate <code>web/dist</code>.</p>' \
         '  </body>' \
         '</html>' > web/dist/index.html; \
@@ -53,19 +65,29 @@ RUN --mount=type=cache,id=zeroclaw-cargo-registry,target=/usr/local/cargo/regist
     --mount=type=cache,id=zeroclaw-cargo-git,target=/usr/local/cargo/git,sharing=locked \
     --mount=type=cache,id=zeroclaw-target,target=/app/target,sharing=locked \
     cargo build --release --locked && \
-    cp target/release/zeroclaw /app/zeroclaw && \
-    strip /app/zeroclaw
+    cp target/release/zerooraclaw /app/zerooraclaw && \
+    strip /app/zerooraclaw
 
-# Prepare runtime directory structure and default config inline (no extra stage)
-RUN mkdir -p /zeroclaw-data/.zeroclaw /zeroclaw-data/workspace && \
-    cat > /zeroclaw-data/.zeroclaw/config.toml <<EOF && \
-    chown -R 65534:65534 /zeroclaw-data
-workspace_dir = "/zeroclaw-data/workspace"
-config_path = "/zeroclaw-data/.zeroclaw/config.toml"
+# Prepare runtime directory structure and default config inline
+RUN mkdir -p /zerooraclaw-data/.zerooraclaw /zerooraclaw-data/workspace && \
+    cat > /zerooraclaw-data/.zerooraclaw/config.toml <<EOF && \
+    chown -R 65534:65534 /zerooraclaw-data
+workspace_dir = "/zerooraclaw-data/workspace"
+config_path = "/zerooraclaw-data/.zerooraclaw/config.toml"
 api_key = ""
-default_provider = "openrouter"
-default_model = "anthropic/claude-sonnet-4-20250514"
+default_provider = "ollama"
+default_model = "qwen3:latest"
 default_temperature = 0.7
+
+[oracle]
+mode = "freepdb"
+host = "oracle-db"
+port = 1521
+service = "FREEPDB1"
+user = "zerooraclaw"
+password = "ZeroOraClaw2026"
+onnx_model = "ALL_MINILM_L12_V2"
+agent_id = "default"
 
 [gateway]
 port = 42617
@@ -76,55 +98,67 @@ EOF
 # ── Stage 2: Development Runtime (Debian) ────────────────────
 FROM debian:trixie-slim@sha256:f6e2cfac5cf956ea044b4bd75e6397b4372ad88fe00908045e9a0d21712ae3ba AS dev
 
-# Install essential runtime dependencies only (use docker-compose.override.yml for dev tools)
-RUN apt-get update && apt-get install -y \
+# Install essential runtime dependencies + Oracle Instant Client
+RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     curl \
+    libaio1 wget unzip \
+    && wget -q https://download.oracle.com/otn_software/linux/instantclient/2350000/instantclient-basiclite-linux.x64-23.5.0.0.0dbru.zip \
+    && unzip instantclient-basiclite-linux.x64-23.5.0.0.0dbru.zip -d /opt/oracle \
+    && rm instantclient-basiclite-linux.x64-23.5.0.0.0dbru.zip \
+    && echo "/opt/oracle/instantclient_23_5" > /etc/ld.so.conf.d/oracle.conf \
+    && ldconfig \
+    && apt-get remove -y wget unzip && apt-get autoremove -y \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=builder /zeroclaw-data /zeroclaw-data
-COPY --from=builder /app/zeroclaw /usr/local/bin/zeroclaw
+ENV LD_LIBRARY_PATH=/opt/oracle/instantclient_23_5:$LD_LIBRARY_PATH
+
+COPY --from=builder /zerooraclaw-data /zerooraclaw-data
+COPY --from=builder /app/zerooraclaw /usr/local/bin/zerooraclaw
 
 # Overwrite minimal config with DEV template (Ollama defaults)
-COPY dev/config.template.toml /zeroclaw-data/.zeroclaw/config.toml
-RUN chown 65534:65534 /zeroclaw-data/.zeroclaw/config.toml
+COPY dev/config.template.toml /zerooraclaw-data/.zerooraclaw/config.toml
+RUN chown 65534:65534 /zerooraclaw-data/.zerooraclaw/config.toml
 
 # Environment setup
-# Use consistent workspace path
-ENV ZEROCLAW_WORKSPACE=/zeroclaw-data/workspace
-ENV HOME=/zeroclaw-data
-# Defaults for local dev (Ollama) - matches config.template.toml
+ENV ZEROCLAW_WORKSPACE=/zerooraclaw-data/workspace
+ENV HOME=/zerooraclaw-data
 ENV PROVIDER="ollama"
-ENV ZEROCLAW_MODEL="llama3.2"
+ENV ZEROCLAW_MODEL="qwen3:latest"
 ENV ZEROCLAW_GATEWAY_PORT=42617
 
-# Note: API_KEY is intentionally NOT set here to avoid confusion.
-# It is set in config.toml as the Ollama URL.
-
-WORKDIR /zeroclaw-data
+WORKDIR /zerooraclaw-data
 USER 65534:65534
 EXPOSE 42617
-ENTRYPOINT ["zeroclaw"]
+ENTRYPOINT ["zerooraclaw"]
 CMD ["gateway"]
 
-# ── Stage 3: Production Runtime (Distroless) ─────────────────
-FROM gcr.io/distroless/cc-debian13:nonroot@sha256:84fcd3c223b144b0cb6edc5ecc75641819842a9679a3a58fd6294bec47532bf7 AS release
+# ── Stage 3: Production Runtime (Debian slim, Oracle IC needed) ──
+FROM debian:trixie-slim@sha256:f6e2cfac5cf956ea044b4bd75e6397b4372ad88fe00908045e9a0d21712ae3ba AS release
 
-COPY --from=builder /app/zeroclaw /usr/local/bin/zeroclaw
-COPY --from=builder /zeroclaw-data /zeroclaw-data
+# Install Oracle Instant Client for oracle crate (cannot use distroless)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libaio1 wget unzip ca-certificates && \
+    wget -q https://download.oracle.com/otn_software/linux/instantclient/2350000/instantclient-basiclite-linux.x64-23.5.0.0.0dbru.zip && \
+    unzip instantclient-basiclite-linux.x64-23.5.0.0.0dbru.zip -d /opt/oracle && \
+    rm instantclient-basiclite-linux.x64-23.5.0.0.0dbru.zip && \
+    echo "/opt/oracle/instantclient_23_5" > /etc/ld.so.conf.d/oracle.conf && \
+    ldconfig && \
+    apt-get remove -y wget unzip && apt-get autoremove -y && \
+    rm -rf /var/lib/apt/lists/*
+
+ENV LD_LIBRARY_PATH=/opt/oracle/instantclient_23_5:$LD_LIBRARY_PATH
+
+COPY --from=builder /app/zerooraclaw /usr/local/bin/zerooraclaw
+COPY --from=builder /zerooraclaw-data /zerooraclaw-data
 
 # Environment setup
-ENV ZEROCLAW_WORKSPACE=/zeroclaw-data/workspace
-ENV HOME=/zeroclaw-data
-# Default provider and model are set in config.toml, not here,
-# so config file edits are not silently overridden
-#ENV PROVIDER=
+ENV ZEROCLAW_WORKSPACE=/zerooraclaw-data/workspace
+ENV HOME=/zerooraclaw-data
 ENV ZEROCLAW_GATEWAY_PORT=42617
 
-# API_KEY must be provided at runtime!
-
-WORKDIR /zeroclaw-data
+WORKDIR /zerooraclaw-data
 USER 65534:65534
 EXPOSE 42617
-ENTRYPOINT ["zeroclaw"]
+ENTRYPOINT ["zerooraclaw"]
 CMD ["gateway"]

@@ -1,47 +1,64 @@
-# ZeroClaw Docker Compose Example
-# 
-# Quick start:
-#   1. Copy this file and set your API key
-#   2. Run: docker compose up -d
-#   3. Access gateway at http://localhost:42617
+# ZeroOraClaw Docker Compose
 #
-# For more info: https://github.com/zeroclaw-labs/zeroclaw
+# Quick start:
+#   1. Copy .env.example to .env and set your API key
+#   2. Run: docker compose up -d
+#   3. Wait for Oracle DB to become healthy (~2 minutes)
+#   4. Access gateway at http://localhost:42617
+#
+# For more info: https://github.com/jasperan/zerooraclaw
 
 services:
-  zeroclaw:
-    image: ghcr.io/zeroclaw-labs/zeroclaw:latest
-    # Or build locally:
-    # build: .
-    container_name: zeroclaw
+  oracle-db:
+    image: container-registry.oracle.com/database/free:latest
+    container_name: zerooraclaw-oracle
     restart: unless-stopped
-    
+    environment:
+      ORACLE_PWD: ${ORACLE_PWD:-ZeroOraClaw2026}
+    ports:
+      - "1521:1521"
+    volumes:
+      - oracle-data:/opt/oracle/oradata
+    healthcheck:
+      test: ["CMD-SHELL", "echo 'SELECT 1 FROM DUAL;' | sqlplus -s sys/$${ORACLE_PWD}@localhost:1521/FREEPDB1 as sysdba || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 20
+      start_period: 120s
+    deploy:
+      resources:
+        limits:
+          cpus: '4'
+          memory: 4G
+        reservations:
+          cpus: '1'
+          memory: 2G
+
+  zerooraclaw:
+    build: .
+    container_name: zerooraclaw
+    restart: unless-stopped
+    depends_on:
+      oracle-db:
+        condition: service_healthy
     environment:
       # Required: Your LLM provider API key
       - API_KEY=${API_KEY:-}
-      # Or use the prefixed version:
-      # - ZEROCLAW_API_KEY=${ZEROCLAW_API_KEY:-}
-      
-      # Optional: LLM provider (default: openrouter)
-      # Options: openrouter, openai, anthropic, ollama
-      - PROVIDER=${PROVIDER:-openrouter}
-      
+      # LLM provider (default: ollama)
+      - PROVIDER=${PROVIDER:-ollama}
       # Allow public bind inside Docker (required for container networking)
       - ZEROCLAW_ALLOW_PUBLIC_BIND=true
-      # Default gateway port inside container
       - ZEROCLAW_GATEWAY_PORT=${ZEROCLAW_GATEWAY_PORT:-42617}
-      
-      # Optional: Model override
-      # - ZEROCLAW_MODEL=anthropic/claude-sonnet-4-20250514
-      
-    volumes:
-      # Persist workspace and config (must match WORKDIR/HOME in Dockerfile)
-      - zeroclaw-data:/zeroclaw-data
-      
+      # Oracle connection (pointing to the oracle-db service)
+      - ZEROORACLAW_ORACLE_HOST=oracle-db
+      - ZEROORACLAW_ORACLE_PORT=1521
+      - ZEROORACLAW_ORACLE_SERVICE=FREEPDB1
+      - ZEROORACLAW_ORACLE_USER=zerooraclaw
+      - ZEROORACLAW_ORACLE_PASSWORD=${ORACLE_PWD:-ZeroOraClaw2026}
     ports:
-      # Gateway API port (override HOST_PORT if 42617 is taken)
-      - "${HOST_PORT:-42617}:${ZEROCLAW_GATEWAY_PORT:-42617}"
-    
-    # Resource limits
+      - "${GATEWAY_PORT:-42617}:42617"
+    volumes:
+      - zerooraclaw-data:/zerooraclaw-data
     deploy:
       resources:
         limits:
@@ -50,15 +67,13 @@ services:
         reservations:
           cpus: '0.5'
           memory: 512M
-
-    # Health check — uses lightweight status instead of full diagnostics.
-    # For images with curl, prefer: curl -f http://localhost:42617/health
     healthcheck:
-      test: ["CMD", "zeroclaw", "status"]
+      test: ["CMD", "zerooraclaw", "status"]
       interval: 60s
       timeout: 10s
       retries: 3
       start_period: 10s
 
 volumes:
-  zeroclaw-data:
+  oracle-data:
+  zerooraclaw-data:
