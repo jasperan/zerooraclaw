@@ -14,8 +14,6 @@ use std::sync::{Arc, Mutex};
 use zerooraclaw::agent::agent::Agent;
 use zerooraclaw::agent::dispatcher::{NativeToolDispatcher, XmlToolDispatcher};
 use zerooraclaw::agent::memory_loader::MemoryLoader;
-use zerooraclaw::config::MemoryConfig;
-use zerooraclaw::memory;
 use zerooraclaw::memory::Memory;
 use zerooraclaw::observability::{NoopObserver, Observer};
 use zerooraclaw::providers::traits::ChatMessage;
@@ -223,12 +221,98 @@ impl MemoryLoader for StaticMemoryLoader {
 // Test helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
+/// Simple in-memory Memory backend for tests (no Oracle connection needed).
+struct TestMemory {
+    entries: Mutex<Vec<zerooraclaw::memory::MemoryEntry>>,
+}
+
+impl TestMemory {
+    fn new() -> Self {
+        Self {
+            entries: Mutex::new(Vec::new()),
+        }
+    }
+}
+
+#[async_trait]
+impl Memory for TestMemory {
+    fn name(&self) -> &str {
+        "test"
+    }
+
+    async fn store(
+        &self,
+        key: &str,
+        content: &str,
+        category: zerooraclaw::memory::MemoryCategory,
+        session_id: Option<&str>,
+    ) -> Result<()> {
+        let mut entries = self.entries.lock().unwrap();
+        entries.retain(|e| e.key != key);
+        let next_id = entries.len();
+        entries.push(zerooraclaw::memory::MemoryEntry {
+            id: format!("test-{next_id}"),
+            key: key.to_string(),
+            content: content.to_string(),
+            category,
+            timestamp: chrono::Local::now().to_rfc3339(),
+            session_id: session_id.map(|s| s.to_string()),
+            score: None,
+        });
+        Ok(())
+    }
+
+    async fn recall(
+        &self,
+        query: &str,
+        limit: usize,
+        _session_id: Option<&str>,
+    ) -> Result<Vec<zerooraclaw::memory::MemoryEntry>> {
+        let entries = self.entries.lock().unwrap();
+        let q = query.to_lowercase();
+        Ok(entries
+            .iter()
+            .filter(|e| e.content.to_lowercase().contains(&q) || e.key.to_lowercase().contains(&q))
+            .take(limit)
+            .cloned()
+            .collect())
+    }
+
+    async fn get(&self, key: &str) -> Result<Option<zerooraclaw::memory::MemoryEntry>> {
+        let entries = self.entries.lock().unwrap();
+        Ok(entries.iter().find(|e| e.key == key).cloned())
+    }
+
+    async fn list(
+        &self,
+        category: Option<&zerooraclaw::memory::MemoryCategory>,
+        _session_id: Option<&str>,
+    ) -> Result<Vec<zerooraclaw::memory::MemoryEntry>> {
+        let entries = self.entries.lock().unwrap();
+        Ok(match category {
+            Some(c) => entries.iter().filter(|e| &e.category == c).cloned().collect(),
+            None => entries.clone(),
+        })
+    }
+
+    async fn forget(&self, key: &str) -> Result<bool> {
+        let mut entries = self.entries.lock().unwrap();
+        let len_before = entries.len();
+        entries.retain(|e| e.key != key);
+        Ok(entries.len() < len_before)
+    }
+
+    async fn count(&self) -> Result<usize> {
+        Ok(self.entries.lock().unwrap().len())
+    }
+
+    async fn health_check(&self) -> bool {
+        true
+    }
+}
+
 fn make_memory() -> Arc<dyn Memory> {
-    let cfg = MemoryConfig {
-        backend: "none".into(),
-        ..MemoryConfig::default()
-    };
-    Arc::from(memory::create_memory(&cfg, &std::env::temp_dir(), None).unwrap())
+    Arc::new(TestMemory::new())
 }
 
 fn make_observer() -> Arc<dyn Observer> {

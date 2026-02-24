@@ -12,6 +12,7 @@ use async_trait::async_trait;
 use serde_json::json;
 use std::sync::{Arc, Mutex};
 use zerooraclaw::agent::agent::Agent;
+#[allow(unused_imports)]
 use zerooraclaw::agent::dispatcher::NativeToolDispatcher;
 use zerooraclaw::config::MemoryConfig;
 use zerooraclaw::memory;
@@ -165,12 +166,23 @@ impl Tool for CountingTool {
 // Test helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
+/// In-memory test backend (no Oracle connection needed).
+struct TestMemory;
+
+#[async_trait]
+impl Memory for TestMemory {
+    fn name(&self) -> &str { "test" }
+    async fn store(&self, _: &str, _: &str, _: zerooraclaw::memory::MemoryCategory, _: Option<&str>) -> Result<()> { Ok(()) }
+    async fn recall(&self, _: &str, _: usize, _: Option<&str>) -> Result<Vec<zerooraclaw::memory::MemoryEntry>> { Ok(vec![]) }
+    async fn get(&self, _: &str) -> Result<Option<zerooraclaw::memory::MemoryEntry>> { Ok(None) }
+    async fn list(&self, _: Option<&zerooraclaw::memory::MemoryCategory>, _: Option<&str>) -> Result<Vec<zerooraclaw::memory::MemoryEntry>> { Ok(vec![]) }
+    async fn forget(&self, _: &str) -> Result<bool> { Ok(false) }
+    async fn count(&self) -> Result<usize> { Ok(0) }
+    async fn health_check(&self) -> bool { true }
+}
+
 fn make_memory() -> Arc<dyn Memory> {
-    let cfg = MemoryConfig {
-        backend: "none".into(),
-        ..MemoryConfig::default()
-    };
-    Arc::from(memory::create_memory(&cfg, &std::env::temp_dir(), None).unwrap())
+    Arc::new(TestMemory)
 }
 
 fn make_observer() -> Arc<dyn Observer> {
