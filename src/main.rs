@@ -1112,7 +1112,13 @@ async fn handle_setup_oracle(config: &Config) -> Result<()> {
     println!();
     println!("  Setup complete!");
     println!("  Agent ID:  {agent_id}");
-    println!("  Database:  {}:{}/{}", config.oracle.host, config.oracle.port, config.oracle.service);
+    if config.oracle.mode == "adb" {
+        let dsn_display = config.oracle.dsn.as_deref().unwrap_or("(no DSN)");
+        let dsn_short: String = dsn_display.chars().take(60).collect();
+        println!("  Database:  ADB ({}...)", dsn_short);
+    } else {
+        println!("  Database:  {}:{}/{}", config.oracle.host, config.oracle.port, config.oracle.service);
+    }
     println!();
 
     Ok(())
@@ -1384,59 +1390,50 @@ async fn handle_oracle_inspect(config: &Config, table: &str, search: Option<&str
                 println!("  Vector Similarity Search: \"{query}\"");
                 println!("  {}", "-".repeat(50));
 
-                let embedding_provider = oracle::OracleEmbedding::new(conn.clone(), mgr.onnx_model());
-                use crate::memory::embeddings::EmbeddingProvider;
-                match embedding_provider.embed_one(query).await {
-                    Ok(query_vec) => {
-                        let vec_str = oracle::vector::vec_to_oracle_string(&query_vec);
-                        let results = tokio::task::spawn_blocking({
-                            let conn = conn.clone();
-                            let agent_id = agent_id.clone();
-                            move || -> anyhow::Result<Vec<(String, String, f64)>> {
-                                let guard = conn
-                                    .lock()
-                                    .map_err(|e| anyhow::anyhow!("Lock poisoned: {e}"))?;
-                                let rows = guard.query(
-                                    "SELECT key, content,
-                                            VECTOR_DISTANCE(embedding, TO_VECTOR(:1, 384, FLOAT32), COSINE) AS dist
-                                     FROM ZERO_MEMORIES
-                                     WHERE agent_id = :2 AND embedding IS NOT NULL
-                                     ORDER BY dist ASC
-                                     FETCH FIRST 5 ROWS ONLY",
-                                    &[&vec_str, &agent_id],
-                                )?;
-                                let mut results = Vec::new();
-                                for row_result in rows {
-                                    let row = row_result?;
-                                    let key: String = row.get(0)?;
-                                    let content: String = row.get(1)?;
-                                    let dist: f64 = row.get(2)?;
-                                    let similarity = oracle::vector::similarity_from_distance(dist);
-                                    results.push((key, content, similarity));
-                                }
-                                Ok(results)
-                            }
-                        })
-                        .await??;
-
-                        if results.is_empty() {
-                            println!("  No results with embeddings found.");
-                        } else {
-                            println!("  {:<36} {:>6}  {}", "KEY", "SCORE", "CONTENT (truncated)");
-                            println!("  {}", "-".repeat(70));
-                            for (key, content, score) in &results {
-                                let truncated = if content.len() > 40 {
-                                    format!("{}...", &content[..37])
-                                } else {
-                                    content.clone()
-                                };
-                                println!("  {:<36} {:>5.2}  {}", key, score, truncated);
-                            }
+                let onnx_model = mgr.onnx_model().to_string();
+                let results = tokio::task::spawn_blocking({
+                    let conn = conn.clone();
+                    let agent_id = agent_id.clone();
+                    let query = query.to_string();
+                    move || -> anyhow::Result<Vec<(String, String, f64)>> {
+                        let guard = conn
+                            .lock()
+                            .map_err(|e| anyhow::anyhow!("Lock poisoned: {e}"))?;
+                        let sql = format!(
+                            "SELECT key, content,
+                                    VECTOR_DISTANCE(embedding, VECTOR_EMBEDDING({onnx_model} USING :1 AS DATA), COSINE) AS dist
+                             FROM ZERO_MEMORIES
+                             WHERE agent_id = :2 AND embedding IS NOT NULL
+                             ORDER BY dist ASC
+                             FETCH FIRST 5 ROWS ONLY"
+                        );
+                        let rows = guard.query(&sql, &[&query, &agent_id])?;
+                        let mut results = Vec::new();
+                        for row_result in rows {
+                            let row = row_result?;
+                            let key: String = row.get(0)?;
+                            let content: String = row.get(1)?;
+                            let dist: f64 = row.get(2)?;
+                            let similarity = oracle::vector::similarity_from_distance(dist);
+                            results.push((key, content, similarity));
                         }
+                        Ok(results)
                     }
-                    Err(e) => {
-                        println!("  Failed to generate query embedding: {e}");
-                        println!("  Ensure the ONNX model is loaded (run: zeroclaw setup-oracle)");
+                })
+                .await??;
+
+                if results.is_empty() {
+                    println!("  No results with embeddings found.");
+                } else {
+                    println!("  {:<36} {:>6}  {}", "KEY", "SCORE", "CONTENT (truncated)");
+                    println!("  {}", "-".repeat(70));
+                    for (key, content, score) in &results {
+                        let truncated = if content.len() > 40 {
+                            format!("{}...", &content[..37])
+                        } else {
+                            content.clone()
+                        };
+                        println!("  {:<36} {:>5.2}  {}", key, score, truncated);
                     }
                 }
                 println!();

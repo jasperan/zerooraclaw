@@ -20,7 +20,7 @@ pub use traits::{MemoryCategory, MemoryEntry};
 pub use traits::InMemoryTestBackend;
 
 use crate::config::{EmbeddingRouteConfig, MemoryConfig, OracleConfig, StorageProviderConfig};
-use crate::oracle::{OracleConnectionManager, OracleEmbedding, OracleMemory};
+use crate::oracle::{OracleConnectionManager, OracleMemory};
 use std::path::Path;
 use std::sync::Arc;
 
@@ -51,13 +51,10 @@ pub fn effective_memory_backend_name(
 pub fn create_oracle_memory(
     conn_manager: &OracleConnectionManager,
 ) -> anyhow::Result<Box<dyn Memory>> {
-    let embedder: Arc<dyn embeddings::EmbeddingProvider> = Arc::new(
-        OracleEmbedding::new(conn_manager.conn(), conn_manager.onnx_model()),
-    );
     Ok(Box::new(OracleMemory::new(
         conn_manager.conn(),
         conn_manager.agent_id(),
-        embedder,
+        conn_manager.onnx_model(),
     )))
 }
 

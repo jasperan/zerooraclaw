@@ -1,12 +1,15 @@
 //! Oracle Memory trait implementation.
 //!
 //! Implements the `Memory` trait from `crate::memory::traits` using Oracle AI
-//! Database as the backend.  All DB calls are wrapped in
-//! `tokio::task::spawn_blocking` because the `oracle` crate is synchronous.
+//! Database as the backend.  Embeddings are computed **inline** using
+//! `VECTOR_EMBEDDING(<model> USING :text AS DATA)` — Oracle does the
+//! embedding in-database, so we never need to extract/serialize vectors.
+//!
+//! All DB calls are wrapped in `tokio::task::spawn_blocking` because the
+//! `oracle` crate is synchronous.
 
-use crate::memory::embeddings::EmbeddingProvider;
 use crate::memory::traits::{Memory, MemoryCategory, MemoryEntry};
-use crate::oracle::vector::{similarity_from_distance, vec_to_oracle_string};
+use crate::oracle::vector::similarity_from_distance;
 use async_trait::async_trait;
 use oracle::Connection;
 use std::sync::{Arc, Mutex};
@@ -17,11 +20,15 @@ use uuid::Uuid;
 /// Results with distance-based similarity below this are filtered out.
 const MIN_SIMILARITY: f64 = 0.3;
 
-/// Oracle-backed memory store with vector search support.
+/// Oracle-backed memory store with inline VECTOR_EMBEDDING.
+///
+/// Uses Oracle's in-database ONNX model to compute embeddings directly in
+/// INSERT/SELECT SQL — no external embedding calls needed.
 pub struct OracleMemory {
     conn: Arc<Mutex<Connection>>,
     agent_id: String,
-    embedder: Arc<dyn EmbeddingProvider>,
+    /// ONNX model name for VECTOR_EMBEDDING() (e.g. "ALL_MINILM_L12_V2").
+    model_name: String,
 }
 
 impl OracleMemory {
@@ -29,16 +36,16 @@ impl OracleMemory {
     ///
     /// * `conn` — shared connection from `OracleConnectionManager::conn()`
     /// * `agent_id` — agent identifier for data isolation
-    /// * `embedder` — embedding provider (typically `OracleEmbedding`)
+    /// * `model_name` — ONNX model name for in-database VECTOR_EMBEDDING()
     pub fn new(
         conn: Arc<Mutex<Connection>>,
         agent_id: &str,
-        embedder: Arc<dyn EmbeddingProvider>,
+        model_name: &str,
     ) -> Self {
         Self {
             conn,
             agent_id: agent_id.to_string(),
-            embedder,
+            model_name: model_name.to_string(),
         }
     }
 }
@@ -99,97 +106,53 @@ impl Memory for OracleMemory {
         let cat_str = category.to_string();
         let session_id = session_id.map(|s| s.to_string());
         let memory_id = Uuid::new_v4().to_string();
-
-        // Generate embedding (async, outside spawn_blocking)
-        let embedding = match self.embedder.embed_one(&content).await {
-            Ok(vec) => {
-                debug!("Generated embedding ({} dims) for key '{key}'", vec.len());
-                Some(vec)
-            }
-            Err(e) => {
-                warn!("Embedding generation failed for key '{key}': {e}");
-                None
-            }
-        };
+        let model = self.model_name.clone();
 
         tokio::task::spawn_blocking(move || {
             let guard = conn
                 .lock()
                 .map_err(|e| anyhow::anyhow!("Connection lock poisoned: {e}"))?;
 
-            match &embedding {
-                Some(vec) => {
-                    let vec_str = vec_to_oracle_string(vec);
-                    let sql = "
-                        MERGE INTO ZERO_MEMORIES m
-                        USING (SELECT :1 AS key, :2 AS agent_id FROM DUAL) src
-                        ON (m.key = src.key AND m.agent_id = src.agent_id)
-                        WHEN MATCHED THEN
-                            UPDATE SET
-                                m.content    = :3,
-                                m.category   = :4,
-                                m.session_id = :5,
-                                m.embedding  = TO_VECTOR(:6, 384, FLOAT32),
-                                m.updated_at = CURRENT_TIMESTAMP
-                        WHEN NOT MATCHED THEN
-                            INSERT (memory_id, agent_id, key, content, category, session_id, embedding, created_at, updated_at)
-                            VALUES (:7, :8, :9, :10, :11, :12, TO_VECTOR(:13, 384, FLOAT32), CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-                    ";
-                    guard.execute(
-                        sql,
-                        &[
-                            &key,                // :1
-                            &agent_id,           // :2
-                            &content,            // :3
-                            &cat_str,            // :4
-                            &session_id,         // :5
-                            &vec_str,            // :6
-                            &memory_id,          // :7
-                            &agent_id,           // :8
-                            &key,                // :9
-                            &content,            // :10
-                            &cat_str,            // :11
-                            &session_id,         // :12
-                            &vec_str,            // :13
-                        ],
-                    )?;
-                }
-                None => {
-                    let sql = "
-                        MERGE INTO ZERO_MEMORIES m
-                        USING (SELECT :1 AS key, :2 AS agent_id FROM DUAL) src
-                        ON (m.key = src.key AND m.agent_id = src.agent_id)
-                        WHEN MATCHED THEN
-                            UPDATE SET
-                                m.content    = :3,
-                                m.category   = :4,
-                                m.session_id = :5,
-                                m.updated_at = CURRENT_TIMESTAMP
-                        WHEN NOT MATCHED THEN
-                            INSERT (memory_id, agent_id, key, content, category, session_id, created_at, updated_at)
-                            VALUES (:6, :7, :8, :9, :10, :11, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-                    ";
-                    guard.execute(
-                        sql,
-                        &[
-                            &key,            // :1
-                            &agent_id,       // :2
-                            &content,        // :3
-                            &cat_str,        // :4
-                            &session_id,     // :5
-                            &memory_id,      // :6
-                            &agent_id,       // :7
-                            &key,            // :8
-                            &content,        // :9
-                            &cat_str,        // :10
-                            &session_id,     // :11
-                        ],
-                    )?;
-                }
-            }
+            // Use VECTOR_EMBEDDING() inline — Oracle computes the embedding
+            // in-database from the content text.  We pass content twice: once
+            // for the content column and once for VECTOR_EMBEDDING.
+            let sql = format!(
+                "MERGE INTO ZERO_MEMORIES m
+                 USING (SELECT :1 AS key, :2 AS agent_id FROM DUAL) src
+                 ON (m.key = src.key AND m.agent_id = src.agent_id)
+                 WHEN MATCHED THEN
+                     UPDATE SET
+                         m.content    = :3,
+                         m.category   = :4,
+                         m.session_id = :5,
+                         m.embedding  = VECTOR_EMBEDDING({model} USING :6 AS DATA),
+                         m.updated_at = CURRENT_TIMESTAMP
+                 WHEN NOT MATCHED THEN
+                     INSERT (memory_id, agent_id, key, content, category, session_id, embedding, created_at, updated_at)
+                     VALUES (:7, :8, :9, :10, :11, :12, VECTOR_EMBEDDING({model} USING :13 AS DATA), CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
+            );
+
+            guard.execute(
+                &sql,
+                &[
+                    &key,            // :1
+                    &agent_id,       // :2
+                    &content,        // :3  (content column)
+                    &cat_str,        // :4
+                    &session_id,     // :5
+                    &content,        // :6  (embedding source text)
+                    &memory_id,      // :7
+                    &agent_id,       // :8
+                    &key,            // :9
+                    &content,        // :10 (content column)
+                    &cat_str,        // :11
+                    &session_id,     // :12
+                    &content,        // :13 (embedding source text)
+                ],
+            )?;
 
             guard.commit()?;
-            debug!("Stored memory '{key}' (agent={agent_id})");
+            debug!("Stored memory '{key}' with inline embedding (agent={agent_id})");
             Ok(())
         })
         .await?
@@ -206,15 +169,7 @@ impl Memory for OracleMemory {
         let query_str = query.to_string();
         let session_id = session_id.map(|s| s.to_string());
         let limit_i64 = limit as i64;
-
-        // Try to generate query embedding
-        let query_embedding = match self.embedder.embed_one(query).await {
-            Ok(vec) => Some(vec),
-            Err(e) => {
-                warn!("Query embedding failed, falling back to keyword search: {e}");
-                None
-            }
-        };
+        let model = self.model_name.clone();
 
         tokio::task::spawn_blocking(move || {
             let guard = conn
@@ -223,26 +178,25 @@ impl Memory for OracleMemory {
 
             let mut entries = Vec::new();
 
-            if let Some(ref emb) = query_embedding {
-                let vec_str = vec_to_oracle_string(emb);
-
-                // Vector similarity search
+            // Vector similarity search using inline VECTOR_EMBEDDING for query
+            let vector_result: anyhow::Result<()> = (|| {
                 let (sql, params): (String, Vec<Box<dyn oracle::sql_type::ToSql>>) =
                     if let Some(ref sid) = session_id {
                         (
-                            "SELECT memory_id, key, content, category,
-                                    TO_CHAR(created_at, 'YYYY-MM-DD\"T\"HH24:MI:SS') AS ts,
-                                    session_id,
-                                    VECTOR_DISTANCE(embedding, TO_VECTOR(:1, 384, FLOAT32), COSINE) AS dist
-                             FROM ZERO_MEMORIES
-                             WHERE agent_id = :2
-                               AND embedding IS NOT NULL
-                               AND session_id = :3
-                             ORDER BY dist ASC
-                             FETCH FIRST :4 ROWS ONLY"
-                                .to_string(),
+                            format!(
+                                "SELECT memory_id, key, content, category,
+                                        TO_CHAR(created_at, 'YYYY-MM-DD\"T\"HH24:MI:SS') AS ts,
+                                        session_id,
+                                        VECTOR_DISTANCE(embedding, VECTOR_EMBEDDING({model} USING :1 AS DATA), COSINE) AS dist
+                                 FROM ZERO_MEMORIES
+                                 WHERE agent_id = :2
+                                   AND embedding IS NOT NULL
+                                   AND session_id = :3
+                                 ORDER BY dist ASC
+                                 FETCH FIRST :4 ROWS ONLY"
+                            ),
                             vec![
-                                Box::new(vec_str.clone()),
+                                Box::new(query_str.clone()),
                                 Box::new(agent_id.clone()),
                                 Box::new(sid.clone()),
                                 Box::new(limit_i64),
@@ -250,25 +204,25 @@ impl Memory for OracleMemory {
                         )
                     } else {
                         (
-                            "SELECT memory_id, key, content, category,
-                                    TO_CHAR(created_at, 'YYYY-MM-DD\"T\"HH24:MI:SS') AS ts,
-                                    session_id,
-                                    VECTOR_DISTANCE(embedding, TO_VECTOR(:1, 384, FLOAT32), COSINE) AS dist
-                             FROM ZERO_MEMORIES
-                             WHERE agent_id = :2
-                               AND embedding IS NOT NULL
-                             ORDER BY dist ASC
-                             FETCH FIRST :3 ROWS ONLY"
-                                .to_string(),
+                            format!(
+                                "SELECT memory_id, key, content, category,
+                                        TO_CHAR(created_at, 'YYYY-MM-DD\"T\"HH24:MI:SS') AS ts,
+                                        session_id,
+                                        VECTOR_DISTANCE(embedding, VECTOR_EMBEDDING({model} USING :1 AS DATA), COSINE) AS dist
+                                 FROM ZERO_MEMORIES
+                                 WHERE agent_id = :2
+                                   AND embedding IS NOT NULL
+                                 ORDER BY dist ASC
+                                 FETCH FIRST :3 ROWS ONLY"
+                            ),
                             vec![
-                                Box::new(vec_str.clone()),
+                                Box::new(query_str.clone()),
                                 Box::new(agent_id.clone()),
                                 Box::new(limit_i64),
                             ],
                         )
                     };
 
-                // Build parameter references
                 let param_refs: Vec<&dyn oracle::sql_type::ToSql> =
                     params.iter().map(|p| p.as_ref()).collect();
 
@@ -298,9 +252,14 @@ impl Memory for OracleMemory {
                         score: Some(similarity),
                     });
                 }
+                Ok(())
+            })();
+
+            if let Err(e) = vector_result {
+                warn!("Vector search failed, falling back to keyword: {e}");
             }
 
-            // Fallback: keyword search if no embedding or no results
+            // Fallback: keyword search if vector search failed or returned no results
             if entries.is_empty() {
                 let like_pattern = format!("%{query_str}%");
 
@@ -352,7 +311,6 @@ impl Memory for OracleMemory {
                 for row_result in rows {
                     let row = row_result?;
                     let mut entry = row_to_entry(&row)?;
-                    // Keyword matches get a nominal score
                     entry.score = Some(0.5);
                     entries.push(entry);
                 }
