@@ -240,13 +240,9 @@ impl Agent {
             &config.workspace_dir,
         ));
 
-        let memory: Arc<dyn Memory> = Arc::from(memory::create_memory_with_storage_and_routes(
-            &config.memory,
-            &config.embedding_routes,
-            Some(&config.storage.provider.config),
-            &config.workspace_dir,
-            config.api_key.as_deref(),
-        )?);
+        let memory: Arc<dyn Memory> = Arc::from(
+            memory::create_oracle_memory_from_config(&config.oracle)?,
+        );
 
         let composio_key = if config.composio.enabled {
             config.composio.api_key.as_deref()
@@ -695,14 +691,7 @@ mod tests {
             }]),
         });
 
-        let memory_cfg = crate::config::MemoryConfig {
-            backend: "none".into(),
-            ..crate::config::MemoryConfig::default()
-        };
-        let mem: Arc<dyn Memory> = Arc::from(
-            crate::memory::create_memory(&memory_cfg, std::path::Path::new("/tmp"), None)
-                .expect("memory creation should succeed with valid config"),
-        );
+        let mem: Arc<dyn Memory> = Arc::new(crate::memory::InMemoryTestBackend::new());
 
         let observer: Arc<dyn Observer> = Arc::from(crate::observability::NoopObserver {});
         let mut agent = Agent::builder()
@@ -742,14 +731,7 @@ mod tests {
             ]),
         });
 
-        let memory_cfg = crate::config::MemoryConfig {
-            backend: "none".into(),
-            ..crate::config::MemoryConfig::default()
-        };
-        let mem: Arc<dyn Memory> = Arc::from(
-            crate::memory::create_memory(&memory_cfg, std::path::Path::new("/tmp"), None)
-                .expect("memory creation should succeed with valid config"),
-        );
+        let mem: Arc<dyn Memory> = Arc::new(crate::memory::InMemoryTestBackend::new());
 
         let observer: Arc<dyn Observer> = Arc::from(crate::observability::NoopObserver {});
         let mut agent = Agent::builder()

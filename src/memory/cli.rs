@@ -1,6 +1,6 @@
 use super::traits::{Memory, MemoryCategory};
 use crate::config::Config;
-use anyhow::{bail, Result};
+use anyhow::Result;
 use console::style;
 
 /// Handle `zeroclaw memory <subcommand>` CLI commands.
@@ -22,15 +22,10 @@ pub async fn handle_command(command: crate::MemoryCommands, config: &Config) -> 
 
 /// Create a lightweight memory backend for CLI management operations.
 ///
-/// In the Oracle-only build, CLI commands require Oracle connectivity.
-/// This will be fully wired when the Oracle memory factory is ready (Task 9).
-fn create_cli_memory(_config: &Config) -> Result<Box<dyn Memory>> {
-    // TODO(task-9): Wire Oracle memory backend here.
-    // For now, return an error directing users to configure Oracle.
-    bail!(
-        "Memory CLI commands require a running Oracle connection.\n\
-         Run `zeroclaw setup-oracle` to configure Oracle AI Database connectivity."
-    );
+/// In the Oracle-only build, this connects to Oracle using the `[oracle]`
+/// config section and returns an `OracleMemory` trait object.
+fn create_cli_memory(config: &Config) -> Result<Box<dyn Memory>> {
+    crate::memory::create_oracle_memory_from_config(&config.oracle)
 }
 
 async fn handle_list(

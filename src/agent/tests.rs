@@ -28,7 +28,7 @@ use crate::agent::agent::Agent;
 use crate::agent::dispatcher::{
     NativeToolDispatcher, ToolDispatcher, ToolExecutionResult, XmlToolDispatcher,
 };
-use crate::config::{AgentConfig, MemoryConfig};
+use crate::config::AgentConfig;
 use crate::memory::{self, Memory};
 use crate::observability::{NoopObserver, Observer};
 use crate::providers::{
@@ -253,20 +253,12 @@ impl Tool for CountingTool {
 }
 
 fn make_memory() -> Arc<dyn Memory> {
-    let cfg = MemoryConfig {
-        backend: "none".into(),
-        ..MemoryConfig::default()
-    };
-    Arc::from(memory::create_memory(&cfg, &std::env::temp_dir(), None).unwrap())
+    Arc::new(memory::InMemoryTestBackend::new())
 }
 
 fn make_sqlite_memory() -> (Arc<dyn Memory>, tempfile::TempDir) {
     let tmp = tempfile::TempDir::new().unwrap();
-    let cfg = MemoryConfig {
-        backend: "sqlite".into(),
-        ..MemoryConfig::default()
-    };
-    let mem = Arc::from(memory::create_memory(&cfg, tmp.path(), None).unwrap());
+    let mem: Arc<dyn Memory> = Arc::new(memory::InMemoryTestBackend::new());
     (mem, tmp)
 }
 

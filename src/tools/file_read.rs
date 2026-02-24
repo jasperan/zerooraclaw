@@ -691,7 +691,6 @@ mod tests {
     // ── E2E: full agent pipeline with real FileReadTool + PDF extraction ──
 
     mod e2e_helpers {
-        use crate::config::MemoryConfig;
         use crate::memory::{self, Memory};
         use crate::observability::{NoopObserver, Observer};
         use crate::providers::{ChatMessage, ChatRequest, ChatResponse, Provider};
@@ -752,11 +751,7 @@ mod tests {
         }
 
         pub fn make_memory() -> Arc<dyn Memory> {
-            let cfg = MemoryConfig {
-                backend: "none".into(),
-                ..MemoryConfig::default()
-            };
-            Arc::from(memory::create_memory(&cfg, &std::env::temp_dir(), None).unwrap())
+            Arc::new(memory::InMemoryTestBackend::new())
         }
 
         pub fn make_observer() -> Arc<dyn Observer> {

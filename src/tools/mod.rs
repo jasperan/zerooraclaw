@@ -329,7 +329,7 @@ pub fn all_tools_with_runtime(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{BrowserConfig, Config, MemoryConfig};
+    use crate::config::{BrowserConfig, Config};
     use tempfile::TempDir;
 
     fn test_config(tmp: &TempDir) -> Config {
@@ -351,12 +351,8 @@ mod tests {
     fn all_tools_excludes_browser_when_disabled() {
         let tmp = TempDir::new().unwrap();
         let security = Arc::new(SecurityPolicy::default());
-        let mem_cfg = MemoryConfig {
-            backend: "markdown".into(),
-            ..MemoryConfig::default()
-        };
         let mem: Arc<dyn Memory> =
-            Arc::from(crate::memory::create_memory(&mem_cfg, tmp.path(), None).unwrap());
+            Arc::new(crate::memory::InMemoryTestBackend::new());
 
         let browser = BrowserConfig {
             enabled: false,
@@ -392,12 +388,8 @@ mod tests {
     fn all_tools_includes_browser_when_enabled() {
         let tmp = TempDir::new().unwrap();
         let security = Arc::new(SecurityPolicy::default());
-        let mem_cfg = MemoryConfig {
-            backend: "markdown".into(),
-            ..MemoryConfig::default()
-        };
         let mem: Arc<dyn Memory> =
-            Arc::from(crate::memory::create_memory(&mem_cfg, tmp.path(), None).unwrap());
+            Arc::new(crate::memory::InMemoryTestBackend::new());
 
         let browser = BrowserConfig {
             enabled: true,
@@ -530,12 +522,8 @@ mod tests {
     fn all_tools_includes_delegate_when_agents_configured() {
         let tmp = TempDir::new().unwrap();
         let security = Arc::new(SecurityPolicy::default());
-        let mem_cfg = MemoryConfig {
-            backend: "markdown".into(),
-            ..MemoryConfig::default()
-        };
         let mem: Arc<dyn Memory> =
-            Arc::from(crate::memory::create_memory(&mem_cfg, tmp.path(), None).unwrap());
+            Arc::new(crate::memory::InMemoryTestBackend::new());
 
         let browser = BrowserConfig::default();
         let http = crate::config::HttpRequestConfig::default();
@@ -578,12 +566,8 @@ mod tests {
     fn all_tools_excludes_delegate_when_no_agents() {
         let tmp = TempDir::new().unwrap();
         let security = Arc::new(SecurityPolicy::default());
-        let mem_cfg = MemoryConfig {
-            backend: "markdown".into(),
-            ..MemoryConfig::default()
-        };
         let mem: Arc<dyn Memory> =
-            Arc::from(crate::memory::create_memory(&mem_cfg, tmp.path(), None).unwrap());
+            Arc::new(crate::memory::InMemoryTestBackend::new());
 
         let browser = BrowserConfig::default();
         let http = crate::config::HttpRequestConfig::default();
