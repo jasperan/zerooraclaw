@@ -81,23 +81,20 @@ impl Tool for MemoryForgetTool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::memory::{MemoryCategory, SqliteMemory};
+    use crate::memory::{InMemoryTestBackend, MemoryCategory};
     use crate::security::{AutonomyLevel, SecurityPolicy};
-    use tempfile::TempDir;
 
     fn test_security() -> Arc<SecurityPolicy> {
         Arc::new(SecurityPolicy::default())
     }
 
-    fn test_mem() -> (TempDir, Arc<dyn Memory>) {
-        let tmp = TempDir::new().unwrap();
-        let mem = SqliteMemory::new(tmp.path()).unwrap();
-        (tmp, Arc::new(mem))
+    fn test_mem() -> Arc<dyn Memory> {
+        Arc::new(InMemoryTestBackend::new())
     }
 
     #[test]
     fn name_and_schema() {
-        let (_tmp, mem) = test_mem();
+        let mem = test_mem();
         let tool = MemoryForgetTool::new(mem, test_security());
         assert_eq!(tool.name(), "memory_forget");
         assert!(tool.parameters_schema()["properties"]["key"].is_object());
@@ -105,7 +102,7 @@ mod tests {
 
     #[tokio::test]
     async fn forget_existing() {
-        let (_tmp, mem) = test_mem();
+        let mem = test_mem();
         mem.store("temp", "temporary", MemoryCategory::Conversation, None)
             .await
             .unwrap();
@@ -120,7 +117,7 @@ mod tests {
 
     #[tokio::test]
     async fn forget_nonexistent() {
-        let (_tmp, mem) = test_mem();
+        let mem = test_mem();
         let tool = MemoryForgetTool::new(mem, test_security());
         let result = tool.execute(json!({"key": "nope"})).await.unwrap();
         assert!(result.success);
@@ -129,7 +126,7 @@ mod tests {
 
     #[tokio::test]
     async fn forget_missing_key() {
-        let (_tmp, mem) = test_mem();
+        let mem = test_mem();
         let tool = MemoryForgetTool::new(mem, test_security());
         let result = tool.execute(json!({})).await;
         assert!(result.is_err());
@@ -137,7 +134,7 @@ mod tests {
 
     #[tokio::test]
     async fn forget_blocked_in_readonly_mode() {
-        let (_tmp, mem) = test_mem();
+        let mem = test_mem();
         mem.store("temp", "temporary", MemoryCategory::Conversation, None)
             .await
             .unwrap();
@@ -158,7 +155,7 @@ mod tests {
 
     #[tokio::test]
     async fn forget_blocked_when_rate_limited() {
-        let (_tmp, mem) = test_mem();
+        let mem = test_mem();
         mem.store("temp", "temporary", MemoryCategory::Conversation, None)
             .await
             .unwrap();

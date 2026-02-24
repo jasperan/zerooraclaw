@@ -1,11 +1,5 @@
 use super::traits::{Memory, MemoryCategory};
-use super::{
-    classify_memory_backend, create_memory_for_migration, effective_memory_backend_name,
-    MemoryBackendKind,
-};
 use crate::config::Config;
-#[cfg(feature = "memory-postgres")]
-use anyhow::Context;
 use anyhow::{bail, Result};
 use console::style;
 
@@ -28,51 +22,15 @@ pub async fn handle_command(command: crate::MemoryCommands, config: &Config) -> 
 
 /// Create a lightweight memory backend for CLI management operations.
 ///
-/// CLI commands (list/get/stats/clear) never use vector search, so we skip
-/// embedding provider initialisation for local backends by using the
-/// migration factory.  Postgres still needs its full connection config.
-fn create_cli_memory(config: &Config) -> Result<Box<dyn Memory>> {
-    let backend = effective_memory_backend_name(
-        &config.memory.backend,
-        Some(&config.storage.provider.config),
+/// In the Oracle-only build, CLI commands require Oracle connectivity.
+/// This will be fully wired when the Oracle memory factory is ready (Task 9).
+fn create_cli_memory(_config: &Config) -> Result<Box<dyn Memory>> {
+    // TODO(task-9): Wire Oracle memory backend here.
+    // For now, return an error directing users to configure Oracle.
+    bail!(
+        "Memory CLI commands require a running Oracle connection.\n\
+         Run `zeroclaw setup-oracle` to configure Oracle AI Database connectivity."
     );
-
-    match classify_memory_backend(&backend) {
-        MemoryBackendKind::None => {
-            bail!("Memory backend is 'none' (disabled). No entries to manage.");
-        }
-        #[cfg(feature = "memory-postgres")]
-        MemoryBackendKind::Postgres => {
-            #[cfg(feature = "memory-postgres")]
-            {
-                let sp = &config.storage.provider.config;
-                let db_url = sp
-                    .db_url
-                    .as_deref()
-                    .map(str::trim)
-                    .filter(|v| !v.is_empty())
-                    .context(
-                        "memory backend 'postgres' requires db_url in [storage.provider.config]",
-                    )?;
-                let mem = super::PostgresMemory::new(
-                    db_url,
-                    &sp.schema,
-                    &sp.table,
-                    sp.connect_timeout_secs,
-                )?;
-                Ok(Box::new(mem))
-            }
-            #[cfg(not(feature = "memory-postgres"))]
-            {
-                bail!("Memory backend 'postgres' requires the 'memory-postgres' feature to be enabled at compile time.");
-            }
-        }
-        #[cfg(not(feature = "memory-postgres"))]
-        MemoryBackendKind::Postgres => {
-            bail!("memory backend 'postgres' requires the 'memory-postgres' feature to be enabled");
-        }
-        _ => create_memory_for_migration(&backend, &config.workspace_dir),
-    }
 }
 
 async fn handle_list(
@@ -243,7 +201,7 @@ async fn handle_clear(
 
     println!(
         "{} Cleared {deleted}/{} entries.",
-        style("✓").green().bold(),
+        style("*").green().bold(),
         entries.len(),
     );
 
@@ -291,7 +249,7 @@ async fn handle_clear_key(mem: &dyn Memory, key: &str, yes: bool) -> Result<()> 
     }
 
     if mem.forget(&target).await? {
-        println!("{} Deleted key: {target}", style("✓").green().bold());
+        println!("{} Deleted key: {target}", style("*").green().bold());
     }
 
     Ok(())

@@ -93,8 +93,11 @@ ring = "0.17"
 # Protobuf encode/decode (Lark WS frame codec, WhatsApp storage)
 prost = { version = "0.14", default-features = false, features = ["derive"], optional = true }
 
-# Memory / persistence
+# Memory / persistence (Oracle is the primary backend for memories)
 oracle = { version = "0.6", features = ["chrono"] }
+# rusqlite is retained for non-memory subsystems: cron scheduler, iMessage reader, WhatsApp storage.
+# Version must match matrix-sdk's transitive dependency to avoid libsqlite3-sys link conflicts.
+rusqlite = { version = "0.37", features = ["bundled"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std", "serde"] }
 chrono-tz = "0.10"
 cron = "0.15"
@@ -158,7 +161,7 @@ probe-rs = { version = "0.31", optional = true }
 pdf-extract = { version = "0.10", optional = true }
 
 # WhatsApp Web client (wa-rs) — optional, enable with --features whatsapp-web
-# Uses wa-rs for Bot and Client, wa-rs-core for storage traits, custom rusqlite backend avoids Diesel conflict.
+# Uses wa-rs for Bot and Client, wa-rs-core for storage traits.
 wa-rs = { version = "0.2", optional = true, default-features = false }
 wa-rs-core = { version = "0.2", optional = true, default-features = false }
 wa-rs-binary = { version = "0.2", optional = true, default-features = false }
@@ -195,7 +198,7 @@ landlock = ["sandbox-landlock"]
 probe = ["dep:probe-rs"]
 # rag-pdf = PDF ingestion for datasheet RAG
 rag-pdf = ["dep:pdf-extract"]
-# whatsapp-web = Native WhatsApp Web client with custom rusqlite storage backend
+# whatsapp-web = Native WhatsApp Web client with custom storage backend
 whatsapp-web = ["dep:wa-rs", "dep:wa-rs-core", "dep:wa-rs-binary", "dep:wa-rs-proto", "dep:wa-rs-ureq-http", "dep:wa-rs-tokio-transport", "dep:serde-big-array", "dep:prost"]
 
 [profile.release]

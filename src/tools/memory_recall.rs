@@ -91,18 +91,15 @@ impl Tool for MemoryRecallTool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::memory::{MemoryCategory, SqliteMemory};
-    use tempfile::TempDir;
+    use crate::memory::{InMemoryTestBackend, MemoryCategory};
 
-    fn seeded_mem() -> (TempDir, Arc<dyn Memory>) {
-        let tmp = TempDir::new().unwrap();
-        let mem = SqliteMemory::new(tmp.path()).unwrap();
-        (tmp, Arc::new(mem))
+    fn seeded_mem() -> Arc<dyn Memory> {
+        Arc::new(InMemoryTestBackend::new())
     }
 
     #[tokio::test]
     async fn recall_empty() {
-        let (_tmp, mem) = seeded_mem();
+        let mem = seeded_mem();
         let tool = MemoryRecallTool::new(mem);
         let result = tool.execute(json!({"query": "anything"})).await.unwrap();
         assert!(result.success);
@@ -111,7 +108,7 @@ mod tests {
 
     #[tokio::test]
     async fn recall_finds_match() {
-        let (_tmp, mem) = seeded_mem();
+        let mem = seeded_mem();
         mem.store("lang", "User prefers Rust", MemoryCategory::Core, None)
             .await
             .unwrap();
@@ -128,7 +125,7 @@ mod tests {
 
     #[tokio::test]
     async fn recall_respects_limit() {
-        let (_tmp, mem) = seeded_mem();
+        let mem = seeded_mem();
         for i in 0..10 {
             mem.store(
                 &format!("k{i}"),
@@ -151,7 +148,7 @@ mod tests {
 
     #[tokio::test]
     async fn recall_missing_query() {
-        let (_tmp, mem) = seeded_mem();
+        let mem = seeded_mem();
         let tool = MemoryRecallTool::new(mem);
         let result = tool.execute(json!({})).await;
         assert!(result.is_err());
@@ -159,7 +156,7 @@ mod tests {
 
     #[test]
     fn name_and_schema() {
-        let (_tmp, mem) = seeded_mem();
+        let mem = seeded_mem();
         let tool = MemoryRecallTool::new(mem);
         assert_eq!(tool.name(), "memory_recall");
         assert!(tool.parameters_schema()["properties"]["query"].is_object());

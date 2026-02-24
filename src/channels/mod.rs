@@ -3304,7 +3304,7 @@ pub async fn start_channels(config: Config) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::memory::{Memory, MemoryCategory, SqliteMemory};
+    use crate::memory::{InMemoryTestBackend, Memory, MemoryCategory};
     use crate::observability::NoopObserver;
     use crate::providers::{ChatMessage, Provider};
     use crate::tools::{Tool, ToolResult};
@@ -5613,7 +5613,7 @@ BTC is currently around $65,000 based on latest tool output."#
     #[tokio::test]
     async fn autosave_keys_preserve_multiple_conversation_facts() {
         let tmp = TempDir::new().unwrap();
-        let mem = SqliteMemory::new(tmp.path()).unwrap();
+        let mem = InMemoryTestBackend::new();
 
         let msg1 = traits::ChannelMessage {
             id: "msg_1".into(),
@@ -5660,7 +5660,7 @@ BTC is currently around $65,000 based on latest tool output."#
     #[tokio::test]
     async fn build_memory_context_includes_recalled_entries() {
         let tmp = TempDir::new().unwrap();
-        let mem = SqliteMemory::new(tmp.path()).unwrap();
+        let mem = InMemoryTestBackend::new();
         mem.store("age_fact", "Age is 45", MemoryCategory::Conversation, None)
             .await
             .unwrap();

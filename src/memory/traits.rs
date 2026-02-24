@@ -94,6 +94,122 @@ pub trait Memory: Send + Sync {
     async fn health_check(&self) -> bool;
 }
 
+/// A simple in-memory implementation of the `Memory` trait for testing.
+///
+/// This replaces the removed `SqliteMemory` in test code. It provides basic
+/// store/recall/get/list/forget/count functionality backed by a `Vec`.
+#[cfg(test)]
+pub struct InMemoryTestBackend {
+    entries: parking_lot::Mutex<Vec<MemoryEntry>>,
+}
+
+#[cfg(test)]
+impl InMemoryTestBackend {
+    pub fn new() -> Self {
+        Self {
+            entries: parking_lot::Mutex::new(Vec::new()),
+        }
+    }
+}
+
+#[cfg(test)]
+#[async_trait]
+impl Memory for InMemoryTestBackend {
+    fn name(&self) -> &str {
+        "in_memory_test"
+    }
+
+    async fn store(
+        &self,
+        key: &str,
+        content: &str,
+        category: MemoryCategory,
+        session_id: Option<&str>,
+    ) -> anyhow::Result<()> {
+        let mut entries = self.entries.lock();
+        // Upsert: if key exists, update it
+        if let Some(existing) = entries.iter_mut().find(|e| e.key == key) {
+            existing.content = content.to_string();
+            existing.category = category;
+            existing.timestamp = chrono::Utc::now().to_rfc3339();
+            existing.session_id = session_id.map(str::to_string);
+        } else {
+            entries.push(MemoryEntry {
+                id: uuid::Uuid::new_v4().to_string(),
+                key: key.to_string(),
+                content: content.to_string(),
+                category,
+                timestamp: chrono::Utc::now().to_rfc3339(),
+                session_id: session_id.map(str::to_string),
+                score: None,
+            });
+        }
+        Ok(())
+    }
+
+    async fn recall(
+        &self,
+        query: &str,
+        limit: usize,
+        session_id: Option<&str>,
+    ) -> anyhow::Result<Vec<MemoryEntry>> {
+        let entries = self.entries.lock();
+        let query_lower = query.to_ascii_lowercase();
+        let results: Vec<_> = entries
+            .iter()
+            .filter(|e| {
+                let content_match = e.content.to_ascii_lowercase().contains(&query_lower)
+                    || e.key.to_ascii_lowercase().contains(&query_lower);
+                let session_match = session_id
+                    .map_or(true, |sid| e.session_id.as_deref() == Some(sid));
+                content_match && session_match
+            })
+            .take(limit)
+            .cloned()
+            .collect();
+        Ok(results)
+    }
+
+    async fn get(&self, key: &str) -> anyhow::Result<Option<MemoryEntry>> {
+        let entries = self.entries.lock();
+        Ok(entries.iter().find(|e| e.key == key).cloned())
+    }
+
+    async fn list(
+        &self,
+        category: Option<&MemoryCategory>,
+        session_id: Option<&str>,
+    ) -> anyhow::Result<Vec<MemoryEntry>> {
+        let entries = self.entries.lock();
+        let results: Vec<_> = entries
+            .iter()
+            .filter(|e| {
+                let cat_match = category.map_or(true, |c| e.category == *c);
+                let session_match = session_id
+                    .map_or(true, |sid| e.session_id.as_deref() == Some(sid));
+                cat_match && session_match
+            })
+            .cloned()
+            .collect();
+        Ok(results)
+    }
+
+    async fn forget(&self, key: &str) -> anyhow::Result<bool> {
+        let mut entries = self.entries.lock();
+        let len_before = entries.len();
+        entries.retain(|e| e.key != key);
+        Ok(entries.len() < len_before)
+    }
+
+    async fn count(&self) -> anyhow::Result<usize> {
+        Ok(self.entries.lock().len())
+    }
+
+    async fn health_check(&self) -> bool {
+        true
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

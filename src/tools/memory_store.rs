@@ -96,23 +96,20 @@ impl Tool for MemoryStoreTool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::memory::SqliteMemory;
+    use crate::memory::InMemoryTestBackend;
     use crate::security::{AutonomyLevel, SecurityPolicy};
-    use tempfile::TempDir;
 
     fn test_security() -> Arc<SecurityPolicy> {
         Arc::new(SecurityPolicy::default())
     }
 
-    fn test_mem() -> (TempDir, Arc<dyn Memory>) {
-        let tmp = TempDir::new().unwrap();
-        let mem = SqliteMemory::new(tmp.path()).unwrap();
-        (tmp, Arc::new(mem))
+    fn test_mem() -> Arc<dyn Memory> {
+        Arc::new(InMemoryTestBackend::new())
     }
 
     #[test]
     fn name_and_schema() {
-        let (_tmp, mem) = test_mem();
+        let mem = test_mem();
         let tool = MemoryStoreTool::new(mem, test_security());
         assert_eq!(tool.name(), "memory_store");
         let schema = tool.parameters_schema();
@@ -122,7 +119,7 @@ mod tests {
 
     #[tokio::test]
     async fn store_core() {
-        let (_tmp, mem) = test_mem();
+        let mem = test_mem();
         let tool = MemoryStoreTool::new(mem.clone(), test_security());
         let result = tool
             .execute(json!({"key": "lang", "content": "Prefers Rust"}))
@@ -138,7 +135,7 @@ mod tests {
 
     #[tokio::test]
     async fn store_with_category() {
-        let (_tmp, mem) = test_mem();
+        let mem = test_mem();
         let tool = MemoryStoreTool::new(mem.clone(), test_security());
         let result = tool
             .execute(json!({"key": "note", "content": "Fixed bug", "category": "daily"}))
@@ -149,7 +146,7 @@ mod tests {
 
     #[tokio::test]
     async fn store_with_custom_category() {
-        let (_tmp, mem) = test_mem();
+        let mem = test_mem();
         let tool = MemoryStoreTool::new(mem.clone(), test_security());
         let result = tool
             .execute(
@@ -166,7 +163,7 @@ mod tests {
 
     #[tokio::test]
     async fn store_missing_key() {
-        let (_tmp, mem) = test_mem();
+        let mem = test_mem();
         let tool = MemoryStoreTool::new(mem, test_security());
         let result = tool.execute(json!({"content": "no key"})).await;
         assert!(result.is_err());
@@ -174,7 +171,7 @@ mod tests {
 
     #[tokio::test]
     async fn store_missing_content() {
-        let (_tmp, mem) = test_mem();
+        let mem = test_mem();
         let tool = MemoryStoreTool::new(mem, test_security());
         let result = tool.execute(json!({"key": "no_content"})).await;
         assert!(result.is_err());
@@ -182,7 +179,7 @@ mod tests {
 
     #[tokio::test]
     async fn store_blocked_in_readonly_mode() {
-        let (_tmp, mem) = test_mem();
+        let mem = test_mem();
         let readonly = Arc::new(SecurityPolicy {
             autonomy: AutonomyLevel::ReadOnly,
             ..SecurityPolicy::default()
@@ -203,7 +200,7 @@ mod tests {
 
     #[tokio::test]
     async fn store_blocked_when_rate_limited() {
-        let (_tmp, mem) = test_mem();
+        let mem = test_mem();
         let limited = Arc::new(SecurityPolicy {
             max_actions_per_hour: 0,
             ..SecurityPolicy::default()

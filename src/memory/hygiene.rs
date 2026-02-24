@@ -1,7 +1,6 @@
 use crate::config::MemoryConfig;
 use anyhow::Result;
 use chrono::{DateTime, Duration, Local, NaiveDate, Utc};
-use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -55,22 +54,20 @@ pub fn run_if_due(config: &MemoryConfig, workspace_dir: &Path) -> Result<()> {
         archived_session_files: archive_session_files(workspace_dir, config.archive_after_days)?,
         purged_memory_archives: purge_memory_archives(workspace_dir, config.purge_after_days)?,
         purged_session_archives: purge_session_archives(workspace_dir, config.purge_after_days)?,
-        pruned_conversation_rows: prune_conversation_rows(
-            workspace_dir,
-            config.conversation_retention_days,
-        )?,
+        // In Oracle backend, conversation pruning is handled by Oracle retention policies.
+        // This is a no-op stub for now.
+        pruned_conversation_rows: 0,
     };
 
     write_state(workspace_dir, &report)?;
 
     if report.total_actions() > 0 {
         tracing::info!(
-            "memory hygiene complete: archived_memory={} archived_sessions={} purged_memory={} purged_sessions={} pruned_conversation_rows={}",
+            "memory hygiene complete: archived_memory={} archived_sessions={} purged_memory={} purged_sessions={}",
             report.archived_memory_files,
             report.archived_session_files,
             report.purged_memory_archives,
             report.purged_session_archives,
-            report.pruned_conversation_rows,
         );
     }
 
@@ -295,29 +292,6 @@ fn purge_session_archives(workspace_dir: &Path, purge_after_days: u32) -> Result
     Ok(removed)
 }
 
-fn prune_conversation_rows(workspace_dir: &Path, retention_days: u32) -> Result<u64> {
-    if retention_days == 0 {
-        return Ok(0);
-    }
-
-    let db_path = workspace_dir.join("memory").join("brain.db");
-    if !db_path.exists() {
-        return Ok(0);
-    }
-
-    let conn = Connection::open(db_path)?;
-    // Use WAL so hygiene pruning doesn't block agent reads
-    conn.execute_batch("PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;")?;
-    let cutoff = (Local::now() - Duration::days(i64::from(retention_days))).to_rfc3339();
-
-    let affected = conn.execute(
-        "DELETE FROM memories WHERE category = 'conversation' AND updated_at < ?1",
-        params![cutoff],
-    )?;
-
-    Ok(u64::try_from(affected).unwrap_or(0))
-}
-
 fn memory_date_from_filename(filename: &str) -> Option<NaiveDate> {
     let stem = filename.strip_suffix(".md")?;
     let date_part = stem.split('_').next().unwrap_or(stem);
@@ -379,7 +353,6 @@ fn split_name(filename: &str) -> (&str, &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::memory::{Memory, MemoryCategory, SqliteMemory};
     use tempfile::TempDir;
 
     fn default_cfg() -> MemoryConfig {
@@ -494,47 +467,5 @@ mod tests {
 
         assert!(!old_file.exists(), "old archived file should be purged");
         assert!(keep_file.exists(), "recent archived file should remain");
-    }
-
-    #[tokio::test]
-    async fn prunes_old_conversation_rows_in_sqlite_backend() {
-        let tmp = TempDir::new().unwrap();
-        let workspace = tmp.path();
-
-        let mem = SqliteMemory::new(workspace).unwrap();
-        mem.store("conv_old", "outdated", MemoryCategory::Conversation, None)
-            .await
-            .unwrap();
-        mem.store("core_keep", "durable", MemoryCategory::Core, None)
-            .await
-            .unwrap();
-        drop(mem);
-
-        let db_path = workspace.join("memory").join("brain.db");
-        let conn = Connection::open(&db_path).unwrap();
-        let old_cutoff = (Local::now() - Duration::days(60)).to_rfc3339();
-        conn.execute(
-            "UPDATE memories SET created_at = ?1, updated_at = ?1 WHERE key = 'conv_old'",
-            params![old_cutoff],
-        )
-        .unwrap();
-        drop(conn);
-
-        let mut cfg = default_cfg();
-        cfg.archive_after_days = 0;
-        cfg.purge_after_days = 0;
-        cfg.conversation_retention_days = 30;
-
-        run_if_due(&cfg, workspace).unwrap();
-
-        let mem2 = SqliteMemory::new(workspace).unwrap();
-        assert!(
-            mem2.get("conv_old").await.unwrap().is_none(),
-            "old conversation rows should be pruned"
-        );
-        assert!(
-            mem2.get("core_keep").await.unwrap().is_some(),
-            "core memory should remain"
-        );
     }
 }

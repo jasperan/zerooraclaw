@@ -168,6 +168,7 @@ pub async fn run_wizard(force: bool) -> Result<Config> {
         hardware: hardware_config,
         query_classification: crate::config::QueryClassificationConfig::default(),
         transcription: crate::config::TranscriptionConfig::default(),
+        oracle: crate::config::OracleConfig::default(),
     };
 
     println!(
@@ -361,31 +362,28 @@ fn backend_key_from_choice(choice: usize) -> &'static str {
 fn memory_config_defaults_for_backend(backend: &str) -> MemoryConfig {
     let profile = memory_backend_profile(backend);
 
+    // Oracle is the only backend; always enable hygiene and sensible defaults.
     MemoryConfig {
-        backend: backend.to_string(),
+        backend: profile.key.to_string(),
         auto_save: profile.auto_save_default,
-        hygiene_enabled: profile.uses_sqlite_hygiene,
-        archive_after_days: if profile.uses_sqlite_hygiene { 7 } else { 0 },
-        purge_after_days: if profile.uses_sqlite_hygiene { 30 } else { 0 },
+        hygiene_enabled: true,
+        archive_after_days: 7,
+        purge_after_days: 30,
         conversation_retention_days: 30,
-        embedding_provider: "none".to_string(),
-        embedding_model: "text-embedding-3-small".to_string(),
-        embedding_dimensions: 1536,
+        embedding_provider: "oracle".to_string(),
+        embedding_model: "all-MiniLM-L6-v2".to_string(),
+        embedding_dimensions: 384,
         vector_weight: 0.7,
         keyword_weight: 0.3,
         min_relevance_score: 0.4,
-        embedding_cache_size: if profile.uses_sqlite_hygiene {
-            10000
-        } else {
-            0
-        },
+        embedding_cache_size: 10000,
         chunk_max_tokens: 512,
         response_cache_enabled: false,
         response_cache_ttl_minutes: 60,
         response_cache_max_entries: 5_000,
         snapshot_enabled: false,
         snapshot_on_hygiene: false,
-        auto_hydrate: true,
+        auto_hydrate: false,
         sqlite_open_timeout_secs: None,
     }
 }
@@ -516,6 +514,7 @@ async fn run_quick_setup_with_home(
         hardware: crate::config::HardwareConfig::default(),
         query_classification: crate::config::QueryClassificationConfig::default(),
         transcription: crate::config::TranscriptionConfig::default(),
+        oracle: crate::config::OracleConfig::default(),
     };
 
     config.save().await?;
@@ -6845,55 +6844,32 @@ mod tests {
     }
 
     #[test]
-    fn backend_key_from_choice_maps_supported_backends() {
-        assert_eq!(backend_key_from_choice(0), "sqlite");
-        assert_eq!(backend_key_from_choice(1), "lucid");
-        assert_eq!(backend_key_from_choice(2), "markdown");
-        assert_eq!(backend_key_from_choice(3), "none");
-        assert_eq!(backend_key_from_choice(999), "sqlite");
+    fn backend_key_from_choice_maps_oracle() {
+        // Oracle is the only backend; any choice maps to "oracle".
+        assert_eq!(backend_key_from_choice(0), "oracle");
+        assert_eq!(backend_key_from_choice(999), "oracle");
     }
 
     #[test]
-    fn memory_backend_profile_marks_lucid_as_optional_sqlite_backed() {
-        let lucid = memory_backend_profile("lucid");
-        assert!(lucid.auto_save_default);
-        assert!(lucid.uses_sqlite_hygiene);
-        assert!(lucid.sqlite_based);
-        assert!(lucid.optional_dependency);
+    fn memory_backend_profile_always_returns_oracle() {
+        let oracle = memory_backend_profile("oracle");
+        assert!(oracle.auto_save_default);
+        assert_eq!(oracle.key, "oracle");
 
-        let markdown = memory_backend_profile("markdown");
-        assert!(markdown.auto_save_default);
-        assert!(!markdown.uses_sqlite_hygiene);
-
-        let none = memory_backend_profile("none");
-        assert!(!none.auto_save_default);
-        assert!(!none.uses_sqlite_hygiene);
-
-        let custom = memory_backend_profile("custom-memory");
-        assert!(custom.auto_save_default);
-        assert!(!custom.uses_sqlite_hygiene);
+        // Even non-oracle names map to oracle
+        let anything = memory_backend_profile("anything");
+        assert_eq!(anything.key, "oracle");
     }
 
     #[test]
-    fn memory_config_defaults_for_lucid_enable_sqlite_hygiene() {
-        let config = memory_config_defaults_for_backend("lucid");
-        assert_eq!(config.backend, "lucid");
+    fn memory_config_defaults_for_oracle() {
+        let config = memory_config_defaults_for_backend("oracle");
+        assert_eq!(config.backend, "oracle");
         assert!(config.auto_save);
         assert!(config.hygiene_enabled);
         assert_eq!(config.archive_after_days, 7);
         assert_eq!(config.purge_after_days, 30);
         assert_eq!(config.embedding_cache_size, 10000);
-    }
-
-    #[test]
-    fn memory_config_defaults_for_none_disable_sqlite_hygiene() {
-        let config = memory_config_defaults_for_backend("none");
-        assert_eq!(config.backend, "none");
-        assert!(!config.auto_save);
-        assert!(!config.hygiene_enabled);
-        assert_eq!(config.archive_after_days, 0);
-        assert_eq!(config.purge_after_days, 0);
-        assert_eq!(config.embedding_cache_size, 0);
     }
 
     #[test]

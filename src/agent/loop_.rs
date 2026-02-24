@@ -3343,7 +3343,7 @@ mod tests {
         assert!(scrubbed.contains("\"api_key\": \"sk-1*[REDACTED]\""));
         assert!(scrubbed.contains("public"));
     }
-    use crate::memory::{Memory, MemoryCategory, SqliteMemory};
+    use crate::memory::{InMemoryTestBackend, Memory, MemoryCategory};
     use crate::observability::NoopObserver;
     use crate::providers::traits::ProviderCapabilities;
     use crate::providers::ChatResponse;
@@ -4511,7 +4511,7 @@ Tail"#;
     #[tokio::test]
     async fn autosave_memory_keys_preserve_multiple_turns() {
         let tmp = TempDir::new().unwrap();
-        let mem = SqliteMemory::new(tmp.path()).unwrap();
+        let mem = InMemoryTestBackend::new();
 
         let key1 = autosave_memory_key("user_msg");
         let key2 = autosave_memory_key("user_msg");
@@ -4532,7 +4532,7 @@ Tail"#;
     #[tokio::test]
     async fn build_context_ignores_legacy_assistant_autosave_entries() {
         let tmp = TempDir::new().unwrap();
-        let mem = SqliteMemory::new(tmp.path()).unwrap();
+        let mem = InMemoryTestBackend::new();
         mem.store(
             "assistant_resp_poisoned",
             "User suffered a fabricated event",
