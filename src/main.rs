@@ -52,9 +52,8 @@ mod agent;
 mod approval;
 mod auth;
 mod channels;
-mod rag {
-    pub use zeroclaw::rag::*;
-}
+mod oracle;
+mod rag;
 mod config;
 mod cost;
 mod cron;
@@ -86,7 +85,7 @@ mod util;
 use config::Config;
 
 // Re-export so binary modules can use crate::<CommandEnum> while keeping a single source of truth.
-pub use zeroclaw::{
+pub use zerooraclaw::{
     ChannelCommands, CronCommands, HardwareCommands, IntegrationCommands, MigrateCommands,
     PeripheralCommands, ServiceCommands, SkillCommands,
 };
@@ -383,7 +382,7 @@ Examples:
   zeroclaw hardware info --chip STM32F401RETx")]
     Hardware {
         #[command(subcommand)]
-        hardware_command: zeroclaw::HardwareCommands,
+        hardware_command: zerooraclaw::HardwareCommands,
     },
 
     /// Manage hardware peripherals (STM32, RPi GPIO, etc.)
@@ -402,7 +401,7 @@ Examples:
   zeroclaw peripheral flash-nucleo")]
     Peripheral {
         #[command(subcommand)]
-        peripheral_command: zeroclaw::PeripheralCommands,
+        peripheral_command: zerooraclaw::PeripheralCommands,
     },
 
     /// Manage agent memory (list, get, stats, clear)
@@ -1048,7 +1047,7 @@ async fn main() -> Result<()> {
 // ─── Oracle CLI Handlers ────────────────────────────────────────────────────
 
 async fn handle_setup_oracle(config: &Config) -> Result<()> {
-    use zeroclaw::oracle;
+    use crate::oracle;
 
     println!();
     println!("  ZeroOraClaw Oracle Setup");
@@ -1120,7 +1119,7 @@ async fn handle_setup_oracle(config: &Config) -> Result<()> {
 }
 
 async fn handle_oracle_inspect(config: &Config, table: &str, search: Option<&str>) -> Result<()> {
-    use zeroclaw::oracle;
+    use crate::oracle;
 
     // Connect to Oracle
     let mgr = tokio::task::spawn_blocking({
@@ -1386,7 +1385,7 @@ async fn handle_oracle_inspect(config: &Config, table: &str, search: Option<&str
                 println!("  {}", "-".repeat(50));
 
                 let embedding_provider = oracle::OracleEmbedding::new(conn.clone(), mgr.onnx_model());
-                use zeroclaw::memory::embeddings::EmbeddingProvider;
+                use crate::memory::embeddings::EmbeddingProvider;
                 match embedding_provider.embed_one(query).await {
                     Ok(query_vec) => {
                         let vec_str = oracle::vector::vec_to_oracle_string(&query_vec);
