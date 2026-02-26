@@ -15,7 +15,7 @@
 
 ---
 
-ZeroOraClaw is a fork of [ZeroClaw](https://github.com/zeroclaw-labs/zeroclaw) that replaces **ALL** storage backends with **Oracle AI Database** as the exclusive persistence layer. Every byte of memory, session, state, and embedding lives in Oracle.
+ZeroOraClaw is a fork of [ZeroClaw](https://github.com/jasperan/zerooraclaw) that replaces **ALL** storage backends with **Oracle AI Database** as the exclusive persistence layer. Every byte of memory, session, state, and embedding lives in Oracle.
 
 ## Why Oracle AI Database?
 
@@ -168,7 +168,7 @@ zerooraclaw
 
 ## Credits
 
-- [ZeroClaw](https://github.com/zeroclaw-labs/zeroclaw) -- the Rust AI agent runtime this project is forked from
+- [ZeroClaw](https://github.com/jasperan/zerooraclaw) -- the Rust AI agent runtime this project is forked from
 - [Oracle AI Database](https://www.oracle.com/database/) -- the exclusive storage backbone
 
 ## License

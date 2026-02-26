@@ -13,13 +13,7 @@
   <a href="LICENSE-APACHE"><img src="https://img.shields.io/badge/license-MIT%20OR%20Apache%202.0-blue.svg" alt="Licence : MIT ou Apache-2.0" /></a>
   <a href="NOTICE"><img src="https://img.shields.io/badge/contributors-27+-green.svg" alt="Contributeurs" /></a>
   <a href="https://buymeacoffee.com/argenistherose"><img src="https://img.shields.io/badge/Buy%20Me%20a%20Coffee-Donate-yellow.svg?style=flat&logo=buy-me-a-coffee" alt="Offrez-moi un café" /></a>
-  <a href="https://x.com/zeroclawlabs?s=21"><img src="https://img.shields.io/badge/X-%40zeroclawlabs-000000?style=flat&logo=x&logoColor=white" alt="X : @zeroclawlabs" /></a>
-  <a href="https://zeroclawlabs.cn/group.jpg"><img src="https://img.shields.io/badge/WeChat-Group-B7D7A8?logo=wechat&logoColor=white" alt="WeChat Group" /></a>
   <a href="https://www.xiaohongshu.com/user/profile/67cbfc43000000000d008307?xsec_token=AB73VnYnGNx5y36EtnnZfGmAmS-6Wzv8WMuGpfwfkg6Yc%3D&xsec_source=pc_search"><img src="https://img.shields.io/badge/Xiaohongshu-Official-FF2442?style=flat" alt="Xiaohongshu : Officiel" /></a>
-  <a href="https://t.me/zeroclawlabs"><img src="https://img.shields.io/badge/Telegram-%40zeroclawlabs-26A5E4?style=flat&logo=telegram&logoColor=white" alt="Telegram : @zeroclawlabs" /></a>
-  <a href="https://t.me/zeroclawlabs_cn"><img src="https://img.shields.io/badge/Telegram%20CN-%40zeroclawlabs__cn-26A5E4?style=flat&logo=telegram&logoColor=white" alt="Telegram CN : @zeroclawlabs_cn" /></a>
-  <a href="https://t.me/zeroclawlabs_ru"><img src="https://img.shields.io/badge/Telegram%20RU-%40zeroclawlabs__ru-26A5E4?style=flat&logo=telegram&logoColor=white" alt="Telegram RU : @zeroclawlabs_ru" /></a>
-  <a href="https://www.reddit.com/r/zeroclawlabs/"><img src="https://img.shields.io/badge/Reddit-r%2Fzeroclawlabs-FF4500?style=flat&logo=reddit&logoColor=white" alt="Reddit : r/zeroclawlabs" /></a>
 </p>
 <p align="center">
 Construit par des étudiants et membres des communautés Harvard, MIT et Sundai.Club.
@@ -63,8 +57,7 @@ Utilisez ce tableau pour les avis importants (changements incompatibles, avis de
 
 | Date (UTC) | Niveau      | Avis                                                                                                                                                                                                                                                                                                                                                                                                              | Action                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | ---------- | ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 2026-02-19 | _Critique_  | Nous ne sommes **pas affiliés** à `openagen/zeroclaw` ou `zeroclaw.org`. Le domaine `zeroclaw.org` pointe actuellement vers le fork `openagen/zeroclaw`, et ce domaine/dépôt usurpe l'identité de notre site web/projet officiel.                                                                                                                                                                                 | Ne faites pas confiance aux informations, binaires, levées de fonds ou annonces provenant de ces sources. Utilisez uniquement [ce dépôt](https://github.com/zeroclaw-labs/zeroclaw) et nos comptes sociaux vérifiés.                                                                                                                                                                                                                                                                                                                                                          |
-| 2026-02-21 | _Important_ | Notre site officiel est désormais en ligne : [zeroclawlabs.ai](https://zeroclawlabs.ai). Merci pour votre patience pendant cette attente. Nous constatons toujours des tentatives d'usurpation : ne participez à aucune activité d'investissement/financement au nom de ZeroClaw si elle n'est pas publiée via nos canaux officiels.                                                                                                                   | Utilisez [ce dépôt](https://github.com/zeroclaw-labs/zeroclaw) comme source unique de vérité. Suivez [X (@zeroclawlabs)](https://x.com/zeroclawlabs?s=21), [Reddit (r/zeroclawlabs)](https://www.reddit.com/r/zeroclawlabs/), [Telegram (@zeroclawlabs)](https://t.me/zeroclawlabs), [Telegram CN (@zeroclawlabs_cn)](https://t.me/zeroclawlabs_cn), [Telegram RU (@zeroclawlabs_ru)](https://t.me/zeroclawlabs_ru), et [Xiaohongshu](https://www.xiaohongshu.com/user/profile/67cbfc43000000000d008307?xsec_token=AB73VnYnGNx5y36EtnnZfGmAmS-6Wzv8WMuGpfwfkg6Yc%3D&xsec_source=pc_search) pour les mises à jour officielles. |
+| 2026-02-19 | _Critique_  | Nous ne sommes **pas affiliés** à `openagen/zeroclaw` ou `zeroclaw.org`. Le domaine `zeroclaw.org` pointe actuellement vers le fork `openagen/zeroclaw`, et ce domaine/dépôt usurpe l'identité de notre site web/projet officiel.                                                                                                                                                                                 | Ne faites pas confiance aux informations, binaires, levées de fonds ou annonces provenant de ces sources. Utilisez uniquement [ce dépôt](https://github.com/jasperan/zerooraclaw) et nos comptes sociaux vérifiés.                                                                                                                                                                                                                                                                                                                                                          |
 | 2026-02-19 | _Important_ | Anthropic a mis à jour les conditions d'utilisation de l'authentification et des identifiants le 2026-02-19. L'authentification OAuth (Free, Pro, Max) est exclusivement destinée à Claude Code et Claude.ai ; l'utilisation de tokens OAuth de Claude Free/Pro/Max dans tout autre produit, outil ou service (y compris Agent SDK) n'est pas autorisée et peut violer les Conditions d'utilisation grand public. | Veuillez temporairement éviter les intégrations OAuth de Claude Code pour prévenir toute perte potentielle. Clause originale : [Authentication and Credential Use](https://code.claude.com/docs/en/legal-and-compliance#authentication-and-credential-use).                                                                                                                                                                                                                                                                                                                      |
 
 ### ✨ Fonctionnalités
@@ -192,7 +185,7 @@ Exemple d'échantillon (macOS arm64, mesuré le 18 février 2026) :
 Le script `bootstrap.sh` installe Rust, clone ZeroClaw, le compile, et configure votre environnement de développement initial :
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/zeroclaw-labs/zeroclaw/main/bootstrap.sh | bash
+curl -fsSL https://raw.githubusercontent.com/jasperan/zerooraclaw/main/bootstrap.sh | bash
 ```
 
 Ceci va :
@@ -213,7 +206,7 @@ Après le bootstrap, relancez votre shell ou exécutez `source ~/.cargo/env` pou
 
 ```bash
 # 1. Clonez le dépôt
-git clone https://github.com/zeroclaw-labs/zeroclaw.git
+git clone https://github.com/jasperan/zerooraclaw.git
 cd zeroclaw
 
 # 2. Compilez en release
@@ -664,7 +657,7 @@ Voir [Référence de Configuration](docs/config-reference.md#logging) pour toute
 
 ### Métriques (Planifié)
 
-Support de métriques Prometheus pour la surveillance en production à venir. Suivi dans [#234](https://github.com/zeroclaw-labs/zeroclaw/issues/234).
+Support de métriques Prometheus pour la surveillance en production à venir. Suivi dans [#234](https://github.com/jasperan/zerooraclaw/issues/234).
 
 ## Compétences (Skills)
 
@@ -825,11 +818,11 @@ Nous construisons en open source parce que les meilleures idées viennent de par
 
 **Ceci est le seul dépôt officiel ZeroClaw :**
 
-> <https://github.com/zeroclaw-labs/zeroclaw>
+> <https://github.com/jasperan/zerooraclaw>
 
 Tout autre dépôt, organisation, domaine ou package prétendant être "ZeroClaw" ou impliquant une affiliation avec ZeroClaw Labs est **non autorisé et non affilié à ce projet**. Les forks non autorisés connus seront listés dans [TRADEMARK.md](TRADEMARK.md).
 
-Si vous rencontrez une usurpation d'identité ou une utilisation abusive de marque, veuillez [ouvrir une issue](https://github.com/zeroclaw-labs/zeroclaw/issues).
+Si vous rencontrez une usurpation d'identité ou une utilisation abusive de marque, veuillez [ouvrir une issue](https://github.com/jasperan/zerooraclaw/issues).
 
 ---
 
@@ -875,11 +868,11 @@ Voir [CONTRIBUTING.md](CONTRIBUTING.md) et [CLA.md](CLA.md). Implémentez un tra
 ## Historique des Étoiles
 
 <p align="center">
-  <a href="https://www.star-history.com/#zeroclaw-labs/zeroclaw&type=date&legend=top-left">
+  <a href="https://www.star-history.com/#jasperan/zerooraclaw&type=date&legend=top-left">
     <picture>
-     <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=zeroclaw-labs/zeroclaw&type=date&theme=dark&legend=top-left" />
-     <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=zeroclaw-labs/zeroclaw&type=date&legend=top-left" />
-     <img alt="Graphique Historique des Étoiles" src="https://api.star-history.com/svg?repos=zeroclaw-labs/zeroclaw&type=date&legend=top-left" />
+     <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=jasperan/zerooraclaw&type=date&theme=dark&legend=top-left" />
+     <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=jasperan/zerooraclaw&type=date&legend=top-left" />
+     <img alt="Graphique Historique des Étoiles" src="https://api.star-history.com/svg?repos=jasperan/zerooraclaw&type=date&legend=top-left" />
     </picture>
   </a>
 </p>

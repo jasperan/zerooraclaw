@@ -214,8 +214,8 @@ journalctl --user -u zeroclaw.service -f
 Cả hai cách vẫn hoạt động:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/zeroclaw-labs/zeroclaw/main/scripts/bootstrap.sh | bash
-curl -fsSL https://raw.githubusercontent.com/zeroclaw-labs/zeroclaw/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/jasperan/zerooraclaw/main/scripts/bootstrap.sh | bash
+curl -fsSL https://raw.githubusercontent.com/jasperan/zerooraclaw/main/scripts/install.sh | bash
 ```
 
 `install.sh` là điểm vào tương thích, chuyển tiếp/dự phòng về hành vi bootstrap.

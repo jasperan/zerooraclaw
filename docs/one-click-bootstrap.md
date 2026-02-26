@@ -13,7 +13,7 @@ brew install zeroclaw
 ## Option A (Recommended): Clone + local script
 
 ```bash
-git clone https://github.com/zeroclaw-labs/zeroclaw.git
+git clone https://github.com/jasperan/zerooraclaw.git
 cd zeroclaw
 ./bootstrap.sh
 ```
@@ -69,7 +69,7 @@ Notes:
 ## Option B: Remote one-liner
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/zeroclaw-labs/zeroclaw/main/scripts/bootstrap.sh | bash
+curl -fsSL https://raw.githubusercontent.com/jasperan/zerooraclaw/main/scripts/bootstrap.sh | bash
 ```
 
 For high-security environments, prefer Option A so you can review the script before execution.
@@ -77,7 +77,7 @@ For high-security environments, prefer Option A so you can review the script bef
 Legacy compatibility:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/zeroclaw-labs/zeroclaw/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/jasperan/zerooraclaw/main/scripts/install.sh | bash
 ```
 
 This legacy endpoint prefers forwarding to `scripts/bootstrap.sh` and falls back to legacy source install if unavailable in that revision.
@@ -104,7 +104,7 @@ workspace/config mounts remain writable inside the container.
 
 If you add `--skip-build`, bootstrap skips local image build. It first tries the local
 Docker tag (`ZEROCLAW_DOCKER_IMAGE`, default: `zeroclaw-bootstrap:local`); if missing,
-it pulls `ghcr.io/zeroclaw-labs/zeroclaw:latest` and tags it locally before running.
+it pulls `ghcr.io/jasperan/zerooraclaw:latest` and tags it locally before running.
 
 ### Quick onboarding (non-interactive)
 
@@ -128,7 +128,7 @@ ZEROCLAW_API_KEY="sk-..." ZEROCLAW_PROVIDER="openrouter" ./bootstrap.sh --onboar
 
 - `--install-system-deps`
 - `--install-rust`
-- `--skip-build` (in `--docker` mode: use local image if present, otherwise pull `ghcr.io/zeroclaw-labs/zeroclaw:latest`)
+- `--skip-build` (in `--docker` mode: use local image if present, otherwise pull `ghcr.io/jasperan/zerooraclaw:latest`)
 - `--skip-install`
 - `--provider <id>`
 

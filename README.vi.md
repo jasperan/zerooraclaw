@@ -13,13 +13,7 @@
   <a href="LICENSE-APACHE"><img src="https://img.shields.io/badge/license-MIT%20OR%20Apache%202.0-blue.svg" alt="License: MIT OR Apache-2.0" /></a>
   <a href="NOTICE"><img src="https://img.shields.io/badge/contributors-27+-green.svg" alt="Contributors" /></a>
   <a href="https://buymeacoffee.com/argenistherose"><img src="https://img.shields.io/badge/Buy%20Me%20a%20Coffee-Donate-yellow.svg?style=flat&logo=buy-me-a-coffee" alt="Buy Me a Coffee" /></a>
-  <a href="https://x.com/zeroclawlabs?s=21"><img src="https://img.shields.io/badge/X-%40zeroclawlabs-000000?style=flat&logo=x&logoColor=white" alt="X: @zeroclawlabs" /></a>
-  <a href="https://zeroclawlabs.cn/group.jpg"><img src="https://img.shields.io/badge/WeChat-Group-B7D7A8?logo=wechat&logoColor=white" alt="WeChat Group" /></a>
   <a href="https://www.xiaohongshu.com/user/profile/67cbfc43000000000d008307?xsec_token=AB73VnYnGNx5y36EtnnZfGmAmS-6Wzv8WMuGpfwfkg6Yc%3D&xsec_source=pc_search"><img src="https://img.shields.io/badge/Xiaohongshu-Official-FF2442?style=flat" alt="Xiaohongshu: Official" /></a>
-  <a href="https://t.me/zeroclawlabs"><img src="https://img.shields.io/badge/Telegram-%40zeroclawlabs-26A5E4?style=flat&logo=telegram&logoColor=white" alt="Telegram: @zeroclawlabs" /></a>
-  <a href="https://t.me/zeroclawlabs_cn"><img src="https://img.shields.io/badge/Telegram%20CN-%40zeroclawlabs__cn-26A5E4?style=flat&logo=telegram&logoColor=white" alt="Telegram CN: @zeroclawlabs_cn" /></a>
-  <a href="https://t.me/zeroclawlabs_ru"><img src="https://img.shields.io/badge/Telegram%20RU-%40zeroclawlabs__ru-26A5E4?style=flat&logo=telegram&logoColor=white" alt="Telegram RU: @zeroclawlabs_ru" /></a>
-  <a href="https://www.reddit.com/r/zeroclawlabs/"><img src="https://img.shields.io/badge/Reddit-r%2Fzeroclawlabs-FF4500?style=flat&logo=reddit&logoColor=white" alt="Reddit: r/zeroclawlabs" /></a>
 </p>
 <p align="center">
 Được xây dựng bởi sinh viên và thành viên của các cộng đồng Harvard, MIT và Sundai.Club.
@@ -63,8 +57,7 @@ Bảng này dành cho các thông báo quan trọng (thay đổi không tương 
 
 | Ngày (UTC) | Mức độ | Thông báo | Hành động |
 |---|---|---|---|
-| 2026-02-19 | _Nghiêm trọng_ | Chúng tôi **không có liên kết** với `openagen/zeroclaw` hoặc `zeroclaw.org`. Tên miền `zeroclaw.org` hiện đang trỏ đến fork `openagen/zeroclaw`, và tên miền/repository đó đang mạo danh website/dự án chính thức của chúng tôi. | Không tin tưởng thông tin, binary, gây quỹ, hay thông báo từ các nguồn đó. Chỉ sử dụng [repository này](https://github.com/zeroclaw-labs/zeroclaw) và các tài khoản mạng xã hội đã được xác minh của chúng tôi. |
-| 2026-02-21 | _Quan trọng_ | Website chính thức của chúng tôi đã ra mắt: [zeroclawlabs.ai](https://zeroclawlabs.ai). Cảm ơn mọi người đã kiên nhẫn chờ đợi. Chúng tôi vẫn đang ghi nhận các nỗ lực mạo danh, vì vậy **không** tham gia bất kỳ hoạt động đầu tư hoặc gây quỹ nào nhân danh ZeroClaw nếu thông tin đó không được công bố qua các kênh chính thức của chúng tôi. | Sử dụng [repository này](https://github.com/zeroclaw-labs/zeroclaw) làm nguồn thông tin duy nhất đáng tin cậy. Theo dõi [X (@zeroclawlabs)](https://x.com/zeroclawlabs?s=21), [Reddit (r/zeroclawlabs)](https://www.reddit.com/r/zeroclawlabs/), [Telegram (@zeroclawlabs)](https://t.me/zeroclawlabs), [Telegram CN (@zeroclawlabs_cn)](https://t.me/zeroclawlabs_cn), [Telegram RU (@zeroclawlabs_ru)](https://t.me/zeroclawlabs_ru), và [Xiaohongshu](https://www.xiaohongshu.com/user/profile/67cbfc43000000000d008307?xsec_token=AB73VnYnGNx5y36EtnnZfGmAmS-6Wzv8WMuGpfwfkg6Yc%3D&xsec_source=pc_search) để nhận cập nhật chính thức. |
+| 2026-02-19 | _Nghiêm trọng_ | Chúng tôi **không có liên kết** với `openagen/zeroclaw` hoặc `zeroclaw.org`. Tên miền `zeroclaw.org` hiện đang trỏ đến fork `openagen/zeroclaw`, và tên miền/repository đó đang mạo danh website/dự án chính thức của chúng tôi. | Không tin tưởng thông tin, binary, gây quỹ, hay thông báo từ các nguồn đó. Chỉ sử dụng [repository này](https://github.com/jasperan/zerooraclaw) và các tài khoản mạng xã hội đã được xác minh của chúng tôi. |
 | 2026-02-19 | _Quan trọng_ | Anthropic đã cập nhật điều khoản Xác thực và Sử dụng Thông tin xác thực vào ngày 2026-02-19. Xác thực OAuth (Free, Pro, Max) được dành riêng cho Claude Code và Claude.ai; việc sử dụng OAuth token từ Claude Free/Pro/Max trong bất kỳ sản phẩm, công cụ hay dịch vụ nào khác (bao gồm Agent SDK) đều không được phép và có thể vi phạm Điều khoản Dịch vụ cho Người tiêu dùng. | Vui lòng tạm thời tránh tích hợp Claude Code OAuth để ngăn ngừa khả năng mất mát. Điều khoản gốc: [Authentication and Credential Use](https://code.claude.com/docs/en/legal-and-compliance#authentication-and-credential-use). |
 
 ### ✨ Tính năng
@@ -175,7 +168,7 @@ Ví dụ mẫu (macOS arm64, đo ngày 18 tháng 2 năm 2026):
 Hoặc bỏ qua các bước trên, cài hết mọi thứ (system deps, Rust, ZeroClaw) chỉ bằng một lệnh:
 
 ```bash
-curl -LsSf https://raw.githubusercontent.com/zeroclaw-labs/zeroclaw/main/scripts/install.sh | bash
+curl -LsSf https://raw.githubusercontent.com/jasperan/zerooraclaw/main/scripts/install.sh | bash
 ```
 
 #### Yêu cầu tài nguyên biên dịch
@@ -219,7 +212,7 @@ brew install zeroclaw
 
 ```bash
 # Khuyến nghị: clone rồi chạy script bootstrap cục bộ
-git clone https://github.com/zeroclaw-labs/zeroclaw.git
+git clone https://github.com/jasperan/zerooraclaw.git
 cd zeroclaw
 ./bootstrap.sh
 
@@ -248,7 +241,7 @@ ZEROCLAW_CONTAINER_CLI=podman ./bootstrap.sh --docker
 Cài từ xa bằng một lệnh (nên xem trước nếu môi trường nhạy cảm về bảo mật):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/zeroclaw-labs/zeroclaw/main/scripts/bootstrap.sh | bash
+curl -fsSL https://raw.githubusercontent.com/jasperan/zerooraclaw/main/scripts/bootstrap.sh | bash
 ```
 
 Chi tiết: [`docs/one-click-bootstrap.md`](docs/one-click-bootstrap.md) (chế độ toolchain có thể yêu cầu `sudo` cho các gói hệ thống).
@@ -262,18 +255,18 @@ Release asset được phát hành cho:
 - Windows: `x86_64`
 
 Tải asset mới nhất tại:
-<https://github.com/zeroclaw-labs/zeroclaw/releases/latest>
+<https://github.com/jasperan/zerooraclaw/releases/latest>
 
 Ví dụ (ARM64 Linux):
 
 ```bash
-curl -fsSLO https://github.com/zeroclaw-labs/zeroclaw/releases/latest/download/zeroclaw-aarch64-unknown-linux-gnu.tar.gz
+curl -fsSLO https://github.com/jasperan/zerooraclaw/releases/latest/download/zeroclaw-aarch64-unknown-linux-gnu.tar.gz
 tar xzf zeroclaw-aarch64-unknown-linux-gnu.tar.gz
 install -m 0755 zeroclaw "$HOME/.cargo/bin/zeroclaw"
 ```
 
 ```bash
-git clone https://github.com/zeroclaw-labs/zeroclaw.git
+git clone https://github.com/jasperan/zerooraclaw.git
 cd zeroclaw
 cargo build --release --locked
 cargo install --path . --force --locked
@@ -1002,11 +995,11 @@ Chúng tôi xây dựng công khai vì ý tưởng hay đến từ khắp nơi. 
 ## ⚠️ Repository Chính thức & Cảnh báo Mạo danh
 
 **Đây là repository ZeroClaw chính thức duy nhất:**
-> <https://github.com/zeroclaw-labs/zeroclaw>
+> <https://github.com/jasperan/zerooraclaw>
 
 Bất kỳ repository, tổ chức, tên miền hay gói nào khác tuyên bố là "ZeroClaw" hoặc ngụ ý liên kết với ZeroClaw Labs đều là **không được ủy quyền và không liên kết với dự án này**. Các fork không được ủy quyền đã biết sẽ được liệt kê trong [TRADEMARK.md](TRADEMARK.md).
 
-Nếu bạn phát hiện hành vi mạo danh hoặc lạm dụng nhãn hiệu, vui lòng [mở một issue](https://github.com/zeroclaw-labs/zeroclaw/issues).
+Nếu bạn phát hiện hành vi mạo danh hoặc lạm dụng nhãn hiệu, vui lòng [mở một issue](https://github.com/jasperan/zerooraclaw/issues).
 
 ---
 
@@ -1051,11 +1044,11 @@ Xem [CONTRIBUTING.md](CONTRIBUTING.md) và [CLA.md](CLA.md). Triển khai một 
 ## Lịch sử Star
 
 <p align="center">
-  <a href="https://www.star-history.com/#zeroclaw-labs/zeroclaw&type=date&legend=top-left">
+  <a href="https://www.star-history.com/#jasperan/zerooraclaw&type=date&legend=top-left">
     <picture>
-     <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=zeroclaw-labs/zeroclaw&type=date&theme=dark&legend=top-left" />
-     <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=zeroclaw-labs/zeroclaw&type=date&legend=top-left" />
-     <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=zeroclaw-labs/zeroclaw&type=date&legend=top-left" />
+     <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=jasperan/zerooraclaw&type=date&theme=dark&legend=top-left" />
+     <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=jasperan/zerooraclaw&type=date&legend=top-left" />
+     <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=jasperan/zerooraclaw&type=date&legend=top-left" />
     </picture>
   </a>
 </p>

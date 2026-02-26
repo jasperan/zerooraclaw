@@ -1,6 +1,6 @@
 # zeroclaw-tools
 
-Gói Python đồng hành cho [ZeroClaw](https://github.com/zeroclaw-labs/zeroclaw) — gọi công cụ dựa trên LangGraph cho thực thi agent LLM nhất quán.
+Gói Python đồng hành cho [ZeroClaw](https://github.com/jasperan/zerooraclaw) — gọi công cụ dựa trên LangGraph cho thực thi agent LLM nhất quán.
 
 ## Tại sao cần gói này?
 
