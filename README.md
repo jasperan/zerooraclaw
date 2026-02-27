@@ -9,8 +9,9 @@
 </p>
 
 <p align="center">
-  <a href="LICENSE-APACHE"><img src="https://img.shields.io/badge/license-MIT%20OR%20Apache%202.0-blue.svg" alt="License: MIT OR Apache-2.0" /></a>
-  <a href="https://github.com/jasperan/zerooraclaw"><img src="https://img.shields.io/badge/GitHub-zerooraclaw-181717?logo=github" alt="GitHub" /></a>
+  <a href="LICENSE-APACHE"><img src="https://img.shields.io/badge/license-MIT%20OR%20Apache%202.0-blue.svg?style=for-the-badge" alt="License: MIT OR Apache-2.0" /></a>
+  <a href="https://github.com/jasperan/zerooraclaw"><img src="https://img.shields.io/badge/GitHub-zerooraclaw-181717?logo=github&style=for-the-badge" alt="GitHub" /></a>
+  <img src="https://img.shields.io/badge/backend-Ollama-black?style=for-the-badge" alt="Ollama" />
 </p>
 
 ---
@@ -174,3 +175,13 @@ zerooraclaw
 ## License
 
 MIT OR Apache-2.0
+
+---
+
+<div align="center">
+
+[![GitHub](https://img.shields.io/badge/GitHub-jasperan-181717?style=for-the-badge&logo=github&logoColor=white)](https://github.com/jasperan)&nbsp;
+[![LinkedIn](https://img.shields.io/badge/LinkedIn-jasperan-0077B5?style=for-the-badge&logo=linkedin&logoColor=white)](https://www.linkedin.com/in/jasperan/)&nbsp;
+[![Oracle](https://img.shields.io/badge/Oracle_Database-Free-F80000?style=for-the-badge&logo=oracle&logoColor=white)](https://www.oracle.com/database/free/)
+
+</div>
