@@ -40,15 +40,15 @@ ZeroOraClaw is a fork of [ZeroClaw](https://github.com/jasperan/zerooraclaw) tha
 - 8 persistent tables (ZERO_* prefix) with vector indexes
 - `setup-oracle` CLI for one-command database setup
 - `oracle-inspect` CLI dashboard for database inspection
-- Docker Compose with Oracle Database Free
-- Supports both FreePDB (local) and Autonomous Database (cloud)
+- **Default: [Oracle AI Database 26ai Free](https://www.oracle.com/database/free/) container** for local development
+- **Optional: [Oracle Autonomous Database](https://www.oracle.com/autonomous-database/)** for managed cloud deployment via the Deploy to Oracle Cloud button
 
 ## Quick Start
 
 ### Prerequisites
 
 - Rust 1.87+
-- Oracle Database Free (Docker) or Oracle Autonomous Database
+- [Oracle AI Database 26ai Free](https://www.oracle.com/database/free/) (Docker) -- the default backend
 - Oracle Instant Client (for building)
 
 ### 1. Build
@@ -89,17 +89,17 @@ docker compose up oracle-db -d
 ## Docker Compose
 
 ```bash
-# Full stack: Oracle DB + ZeroOraClaw
+# Full stack: Oracle AI Database 26ai Free + ZeroOraClaw
 docker compose up -d
 
 # With custom API key
 API_KEY=sk-... docker compose up -d
 
-# Oracle DB only (for local development)
+# Oracle AI Database 26ai Free only (for local development)
 docker compose up oracle-db -d
 ```
 
-The Oracle Database Free container takes approximately 2 minutes to initialize on first start. The `zerooraclaw` service will wait for it to become healthy before starting.
+The Oracle AI Database 26ai Free container takes approximately 2 minutes to initialize on first start. The `zerooraclaw` service will wait for it to become healthy before starting.
 
 ## Oracle Schema
 
@@ -120,7 +120,7 @@ The Oracle Database Free container takes approximately 2 minutes to initialize o
 # ~/.zerooraclaw/config.toml
 
 [oracle]
-mode = "freepdb"           # freepdb | adb
+mode = "freepdb"           # "freepdb" for 26ai Free container (default) | "adb" for Autonomous DB (cloud)
 host = "localhost"
 port = 1521
 service = "FREEPDB1"
@@ -176,7 +176,7 @@ This deploys a fully configured ZeroOraClaw instance on OCI with:
 
 - **Oracle Linux 9** compute instance (ARM A1.Flex -- Always Free eligible)
 - **Ollama** with gemma3:270m model pre-installed
-- **Oracle Database Free** container (or optional Autonomous Database)
+- **Oracle AI Database 26ai Free** container by default (or optional Autonomous AI Database when toggled)
 - **ZeroOraClaw** built from source with Oracle schema initialized
 - **Gateway** running as a systemd service on port 42617
 
@@ -213,6 +213,6 @@ MIT OR Apache-2.0
 
 [![GitHub](https://img.shields.io/badge/GitHub-jasperan-181717?style=for-the-badge&logo=github&logoColor=white)](https://github.com/jasperan)&nbsp;
 [![LinkedIn](https://img.shields.io/badge/LinkedIn-jasperan-0077B5?style=for-the-badge&logo=linkedin&logoColor=white)](https://www.linkedin.com/in/jasperan/)&nbsp;
-[![Oracle](https://img.shields.io/badge/Oracle_Database-Free-F80000?style=for-the-badge&logo=oracle&logoColor=white)](https://www.oracle.com/database/free/)
+[![Oracle](https://img.shields.io/badge/Oracle_AI_Database-26ai_Free-F80000?style=for-the-badge&logo=oracle&logoColor=white)](https://www.oracle.com/database/free/)
 
 </div>

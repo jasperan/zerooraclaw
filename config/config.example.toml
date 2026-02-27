@@ -16,10 +16,12 @@ default_temperature = 0.7
 # default_provider = "openrouter"
 # default_model = "anthropic/claude-sonnet-4-20250514"
 
-# ── Oracle AI Database (the ONLY storage backend) ─────────────
+# ── Oracle AI Database 26ai Free (the default storage backend) ─
+# Default: Oracle AI Database 26ai Free container (mode = "freepdb")
+# Optional: Oracle Autonomous AI Database in the cloud (mode = "adb")
 
 [oracle]
-mode = "freepdb"                    # "freepdb" for local Docker, "adb" for Autonomous DB
+mode = "freepdb"                    # "freepdb" for 26ai Free container (default) | "adb" for Autonomous DB (cloud)
 host = "localhost"
 port = 1521
 service = "FREEPDB1"
@@ -29,7 +31,7 @@ onnx_model = "ALL_MINILM_L12_V2"   # In-database ONNX embedding model (384-dim, 
 agent_id = "default"                # Multi-agent namespace isolation
 max_connections = 5
 
-# For Oracle Autonomous Database (cloud):
+# For Oracle Autonomous AI Database (cloud, optional — deploy via OCI button):
 # [oracle]
 # mode = "adb"
 # wallet_path = "/path/to/wallet"
