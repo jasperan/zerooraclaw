@@ -14,6 +14,12 @@
   <img src="https://img.shields.io/badge/backend-Ollama-black?style=for-the-badge" alt="Ollama" />
 </p>
 
+<p align="center">
+  <a href="https://cloud.oracle.com/resourcemanager/stacks/create?zipUrl=https://github.com/jasperan/zerooraclaw/raw/main/deploy/oci/orm/zerooraclaw-orm.zip">
+    <img src="https://oci-resourcemanager-plugin.plugins.oci.oraclecloud.com/latest/deploy-to-oracle-cloud.svg" alt="Deploy to Oracle Cloud"/>
+  </a>
+</p>
+
 ---
 
 ZeroOraClaw is a fork of [ZeroClaw](https://github.com/jasperan/zerooraclaw) that replaces **ALL** storage backends with **Oracle AI Database** as the exclusive persistence layer. Every byte of memory, session, state, and embedding lives in Oracle.
@@ -160,6 +166,31 @@ zerooraclaw
     agent/             # Agent runtime loop
     cli/               # CLI commands (setup-oracle, oracle-inspect)
     ...
+```
+
+## Deploy to Oracle Cloud (One-Click)
+
+[![Deploy to Oracle Cloud](https://oci-resourcemanager-plugin.plugins.oci.oraclecloud.com/latest/deploy-to-oracle-cloud.svg)](https://cloud.oracle.com/resourcemanager/stacks/create?zipUrl=https://github.com/jasperan/zerooraclaw/raw/main/deploy/oci/orm/zerooraclaw-orm.zip)
+
+This deploys a fully configured ZeroOraClaw instance on OCI with:
+
+- **Oracle Linux 9** compute instance (ARM A1.Flex -- Always Free eligible)
+- **Ollama** with gemma3:270m model pre-installed
+- **Oracle Database Free** container (or optional Autonomous Database)
+- **ZeroOraClaw** built from source with Oracle schema initialized
+- **Gateway** running as a systemd service on port 42617
+
+After deployment, check the Terraform outputs for your instance IP and run:
+
+```bash
+# Watch setup progress (~10 min for Rust build + Oracle init)
+ssh opc@<instance-ip> -t 'tail -f /var/log/zerooraclaw-setup.log'
+
+# Start chatting
+ssh opc@<instance-ip> -t zerooraclaw agent
+
+# Check gateway health
+curl http://<instance-ip>:42617/health
 ```
 
 ## Sister Projects
