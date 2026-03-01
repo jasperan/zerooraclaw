@@ -77,7 +77,7 @@ cp target/release/zerooraclaw /usr/local/bin/zerooraclaw
 chmod +x /usr/local/bin/zerooraclaw
 zerooraclaw --version || true
 
-# -- 6. Initialize config --
+# -- 6. Initialize config (derived from canonical config.example.toml) --
 echo "--- Initializing config ---"
 export HOME=/home/opc
 CONFIG_DIR="/home/opc/.zerooraclaw"
@@ -85,30 +85,17 @@ CONFIG_FILE="${CONFIG_DIR}/config.toml"
 mkdir -p "$CONFIG_DIR"
 chown opc:opc "$CONFIG_DIR"
 
-# Write base config with Ollama provider
-cat > "$CONFIG_FILE" <<'TOMLEOF'
-default_provider = "ollama"
-default_model = "gemma3:270m"
-default_temperature = 0.7
-
-[memory]
-backend = "oracle"
-auto_save = true
-embedding_provider = "oracle-onnx"
-embedding_dimensions = 384
-vector_weight = 0.7
-keyword_weight = 0.3
-min_relevance_score = 0.3
-
-[agent]
-max_tool_iterations = 10
-max_history_messages = 50
-
-[gateway]
-port = 42617
-host = "[::]"
-allow_public_bind = true
-TOMLEOF
+# Copy canonical config from cloned repo and customize for cloud deployment
+cp /opt/zerooraclaw/config/config.example.toml "$CONFIG_FILE"
+sed -i \
+    -e 's/^default_model = .*/default_model = "gemma3:270m"/' \
+    -e '/^\[gateway\]/,/^\[/{s/^host = "127\.0\.0\.1"/host = "[::]"/}' \
+    -e 's/^# allow_public_bind = true.*/allow_public_bind = true/' \
+    -e '/^# host = "\[::\]"/d' \
+    "$CONFIG_FILE"
+# Remove the example [oracle] section — will be appended based on deployment mode
+awk '/^# ── Oracle/{skip=1} /^# ── Memory/{skip=0} !skip' "$CONFIG_FILE" > "${CONFIG_FILE}.tmp"
+mv "${CONFIG_FILE}.tmp" "$CONFIG_FILE"
 chown opc:opc "$CONFIG_FILE"
 
 # -- 7. Oracle Database Setup --
@@ -133,13 +120,27 @@ EXIT;" >/dev/null 2>&1; do
   done
   echo "Oracle DB is ready"
 
-  # Create zerooraclaw user
+  # Create zerooraclaw user (idempotent — matches scripts/setup-oracle.sh)
   docker exec oracle-free sqlplus -S "sys/${ORACLE_PWD}@localhost:1521/FREEPDB1 as sysdba" <<SQL || true
-WHENEVER SQLERROR CONTINUE
-CREATE USER zerooraclaw IDENTIFIED BY "${ORACLE_PWD}"
-  DEFAULT TABLESPACE users QUOTA UNLIMITED ON users;
-GRANT CONNECT, RESOURCE, DB_DEVELOPER_ROLE TO zerooraclaw;
+-- Create user (handle ORA-01920 if user already exists)
+DECLARE
+  user_exists EXCEPTION;
+  PRAGMA EXCEPTION_INIT(user_exists, -1920);
+BEGIN
+  EXECUTE IMMEDIATE 'CREATE USER zerooraclaw IDENTIFIED BY "${ORACLE_PWD}"';
+EXCEPTION
+  WHEN user_exists THEN
+    EXECUTE IMMEDIATE 'ALTER USER zerooraclaw IDENTIFIED BY "${ORACLE_PWD}"';
+END;
+/
+
+-- Grant privileges (aligned with scripts/setup-oracle.sh)
+GRANT CONNECT, RESOURCE, CREATE SESSION TO zerooraclaw;
+GRANT CREATE TABLE, CREATE SEQUENCE TO zerooraclaw;
 GRANT CREATE MINING MODEL TO zerooraclaw;
+GRANT DB_DEVELOPER_ROLE TO zerooraclaw;
+GRANT UNLIMITED TABLESPACE TO zerooraclaw;
+
 EXIT;
 SQL
 

@@ -68,32 +68,24 @@ RUN --mount=type=cache,id=zeroclaw-cargo-registry,target=/usr/local/cargo/regist
     cp target/release/zerooraclaw /app/zerooraclaw && \
     strip /app/zerooraclaw
 
-# Prepare runtime directory structure and default config inline
+# Prepare runtime directory structure and config derived from canonical config.example.toml
+COPY config/config.example.toml /tmp/config.example.toml
 RUN mkdir -p /zerooraclaw-data/.zerooraclaw /zerooraclaw-data/workspace && \
-    cat > /zerooraclaw-data/.zerooraclaw/config.toml <<EOF && \
+    { printf '%s\n' \
+        'workspace_dir = "/zerooraclaw-data/workspace"' \
+        'config_path = "/zerooraclaw-data/.zerooraclaw/config.toml"' \
+        'api_key = ""' \
+        ''; \
+      cat /tmp/config.example.toml; \
+    } > /zerooraclaw-data/.zerooraclaw/config.toml && \
+    sed -i \
+        -e '/^\[oracle\]/,/^\[/{s/^host = "localhost"/host = "oracle-db"/}' \
+        -e '/^\[gateway\]/,/^$/{s/^host = "127\.0\.0\.1"/host = "[::]"/}' \
+        -e 's/^# allow_public_bind = true.*/allow_public_bind = true/' \
+        -e '/^# host = "\[::\]"/d' \
+        /zerooraclaw-data/.zerooraclaw/config.toml && \
+    rm /tmp/config.example.toml && \
     chown -R 65534:65534 /zerooraclaw-data
-workspace_dir = "/zerooraclaw-data/workspace"
-config_path = "/zerooraclaw-data/.zerooraclaw/config.toml"
-api_key = ""
-default_provider = "ollama"
-default_model = "qwen3:latest"
-default_temperature = 0.7
-
-[oracle]
-mode = "freepdb"
-host = "oracle-db"
-port = 1521
-service = "FREEPDB1"
-user = "zerooraclaw"
-password = "ZeroOraClaw2026"
-onnx_model = "ALL_MINILM_L12_V2"
-agent_id = "default"
-
-[gateway]
-port = 42617
-host = "[::]"
-allow_public_bind = true
-EOF
 
 # ── Stage 2: Development Runtime (Debian) ────────────────────
 FROM debian:trixie-slim@sha256:f6e2cfac5cf956ea044b4bd75e6397b4372ad88fe00908045e9a0d21712ae3ba AS dev

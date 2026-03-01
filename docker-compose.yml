@@ -18,6 +18,7 @@ services:
     container_name: zerooraclaw-oracle
     restart: unless-stopped
     environment:
+      # Default password defined in .env.example — change for non-local use
       ORACLE_PWD: ${ORACLE_PWD:-ZeroOraClaw2026}
     ports:
       - "1521:1521"
