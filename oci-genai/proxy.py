@@ -42,8 +42,6 @@ class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
 
 
 class OCIProxyHandler(BaseHTTPRequestHandler):
-    client = None
-
     # ── CORS ────────────────────────────────────────────────────
     def _cors_headers(self):
         self.send_header("Access-Control-Allow-Origin", "*")
@@ -59,7 +57,7 @@ class OCIProxyHandler(BaseHTTPRequestHandler):
 
     # ── POST /v1/chat/completions ───────────────────────────────
     def do_POST(self):
-        if "/chat/completions" not in self.path:
+        if not self.path.startswith("/v1/chat/completions"):
             return self._json(404, {"error": {"message": "Not found"}})
 
         content_length = int(self.headers.get("Content-Length", 0))
@@ -70,7 +68,7 @@ class OCIProxyHandler(BaseHTTPRequestHandler):
             if stream:
                 self._handle_stream(body)
             else:
-                response = self.client.chat.completions.create(**body)
+                response = self.server.client.chat.completions.create(**body)
                 self._json(200, response.model_dump())
         except Exception as exc:
             self._json(
@@ -87,24 +85,29 @@ class OCIProxyHandler(BaseHTTPRequestHandler):
         self._cors_headers()
         self.end_headers()
         try:
-            for chunk in self.client.chat.completions.create(**body):
+            for chunk in self.server.client.chat.completions.create(**body):
                 data = json.dumps(chunk.model_dump())
                 self.wfile.write(f"data: {data}\n\n".encode())
                 self.wfile.flush()
             self.wfile.write(b"data: [DONE]\n\n")
             self.wfile.flush()
+        except ConnectionError:
+            return
         except Exception as exc:
-            err = json.dumps(
-                {"error": {"message": str(exc), "type": "oci_genai_error"}}
-            )
-            self.wfile.write(f"data: {err}\n\n".encode())
-            self.wfile.flush()
+            try:
+                err = json.dumps(
+                    {"error": {"message": str(exc), "type": "oci_genai_error"}}
+                )
+                self.wfile.write(f"data: {err}\n\n".encode())
+                self.wfile.flush()
+            except ConnectionError:
+                return
 
     # ── GET endpoints ───────────────────────────────────────────
     def do_GET(self):
-        if "/models" in self.path:
+        if self.path.startswith("/v1/models"):
             self._json(200, {"object": "list", "data": []})
-        elif "/health" in self.path:
+        elif self.path.startswith("/health"):
             self._json(200, {"status": "ok"})
         else:
             self._json(404, {"error": {"message": "Not found"}})
@@ -118,7 +121,7 @@ class OCIProxyHandler(BaseHTTPRequestHandler):
         self.wfile.write(json.dumps(data).encode())
 
     def log_message(self, fmt, *args):  # noqa: ARG002
-        sys.stderr.write(f"[oci-proxy] {args[0]}\n")
+        sys.stderr.write(f"[oci-proxy] {fmt % args}\n")
 
 
 # ── Main ────────────────────────────────────────────────────────
@@ -129,17 +132,17 @@ def main():
         sys.exit(1)
 
     client = create_oci_client()
-    OCIProxyHandler.client = client
 
     server = ThreadedHTTPServer(("0.0.0.0", PROXY_PORT), OCIProxyHandler)
+    server.client = client
     print(f"OCI GenAI proxy listening on http://localhost:{PROXY_PORT}/v1")
     print(f"  Region:      {os.getenv('OCI_REGION', 'us-chicago-1')}")
     print(f"  Profile:     {os.getenv('OCI_PROFILE', 'DEFAULT')}")
     print(f"  Compartment: {os.getenv('OCI_COMPARTMENT_ID', '')[:50]}...")
     print()
     print("Configure ZeroOraClaw with:")
-    print(f"  PROVIDER=openai")
-    print(f"  API_KEY=oci-genai")
+    print("  PROVIDER=openai")
+    print("  API_KEY=oci-genai")
     print(f'  In config.toml: api_base = "http://localhost:{PROXY_PORT}/v1"')
     print()
     try:

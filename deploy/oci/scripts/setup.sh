@@ -34,17 +34,40 @@ ENVEOF
 rustc --version
 cargo --version
 
-# -- 3. Install Ollama --
+# -- 3. Install Ollama (pull model in background) --
 echo "--- Installing Ollama ---"
 curl -fsSL https://ollama.com/install.sh | sh
 systemctl enable --now ollama
-sleep 5
-ollama pull gemma3:270m
-echo "Ollama ready with gemma3:270m"
 
-# -- 4. Build ZeroOraClaw --
+# Pull model in background while cargo builds
+(
+  echo "--- Waiting for Ollama to be ready ---"
+  for i in $(seq 1 30); do
+    if ollama list >/dev/null 2>&1; then break; fi
+    sleep 2
+  done
+  ollama pull gemma3:270m
+  echo "Ollama ready with gemma3:270m"
+) &
+OLLAMA_PID=$!
+
+# -- 4. Start Oracle DB early (runs in parallel with cargo build) --
+if [ "$ORACLE_MODE" = "freepdb" ]; then
+  echo "--- Pulling Oracle DB container (background) ---"
+  docker pull container-registry.oracle.com/database/free:latest
+  docker run -d --name oracle-free \
+    -p 1521:1521 \
+    -e ORACLE_PWD="$ORACLE_PWD" \
+    -e ORACLE_CHARACTERSET=AL32UTF8 \
+    -v oracle-data:/opt/oracle/oradata \
+    --restart unless-stopped \
+    container-registry.oracle.com/database/free:latest
+  echo "Oracle DB container started, will wait for readiness after cargo build"
+fi
+
+# -- 5. Build ZeroOraClaw (CPU-intensive, runs while DB starts) --
 echo "--- Building ZeroOraClaw ---"
-git clone https://github.com/jasperan/zerooraclaw.git /opt/zerooraclaw
+git clone --depth 1 https://github.com/jasperan/zerooraclaw.git /opt/zerooraclaw
 cd /opt/zerooraclaw
 # Set Oracle Instant Client paths for the oracle crate build
 export ORACLE_HOME=/usr/lib/oracle/23/client64
@@ -54,7 +77,7 @@ cp target/release/zerooraclaw /usr/local/bin/zerooraclaw
 chmod +x /usr/local/bin/zerooraclaw
 zerooraclaw --version || true
 
-# -- 5. Initialize config --
+# -- 6. Initialize config --
 echo "--- Initializing config ---"
 export HOME=/home/opc
 CONFIG_DIR="/home/opc/.zerooraclaw"
@@ -88,24 +111,17 @@ allow_public_bind = true
 TOMLEOF
 chown opc:opc "$CONFIG_FILE"
 
-# -- 6. Oracle Database Setup --
+# -- 7. Oracle Database Setup --
 echo "--- Setting up Oracle Database (mode: $ORACLE_MODE) ---"
 
 if [ "$ORACLE_MODE" = "freepdb" ]; then
-  # Pull and start Oracle AI Database 26ai Free container (default backend)
-  docker pull container-registry.oracle.com/database/free:latest
-  docker run -d --name oracle-free \
-    -p 1521:1521 \
-    -e ORACLE_PWD="$ORACLE_PWD" \
-    -e ORACLE_CHARACTERSET=AL32UTF8 \
-    -v oracle-data:/opt/oracle/oradata \
-    --restart unless-stopped \
-    container-registry.oracle.com/database/free:latest
-
+  # Wait for Oracle DB to be ready (container was started in step 4)
   echo "Waiting for Oracle DB to be ready..."
   TIMEOUT=300
   ELAPSED=0
-  while ! docker logs oracle-free 2>&1 | grep -q "DATABASE IS READY"; do
+  while ! docker exec oracle-free sqlplus -S /nolog <<< "CONNECT sys/${ORACLE_PWD}@localhost:1521/FREEPDB1 AS SYSDBA
+SELECT 1 FROM DUAL;
+EXIT;" >/dev/null 2>&1; do
     sleep 10
     ELAPSED=$((ELAPSED + 10))
     echo "  Waiting... ${ELAPSED}s"
@@ -148,7 +164,7 @@ elif [ "$ORACLE_MODE" = "adb" ]; then
     WALLET_DIR="/home/opc/.zerooraclaw/wallet"
     mkdir -p "$WALLET_DIR"
     echo "$ADB_WALLET_BASE64" | base64 -d > "$WALLET_DIR/wallet.zip"
-    cd "$WALLET_DIR" && unzip -o wallet.zip && cd -
+    unzip -o "$WALLET_DIR/wallet.zip" -d "$WALLET_DIR"
     chown -R opc:opc "$WALLET_DIR"
   fi
 
@@ -168,15 +184,19 @@ fi
 
 chown opc:opc "$CONFIG_FILE"
 
-# -- 7. Initialize Oracle schema --
+# -- 8. Initialize Oracle schema --
 echo "--- Running setup-oracle ---"
-sudo -u opc bash -c "export ORACLE_HOME=/usr/lib/oracle/23/client64 && export LD_LIBRARY_PATH=${ORACLE_HOME}/lib && /usr/local/bin/zerooraclaw setup-oracle"
+sudo -u opc bash -c 'export ORACLE_HOME=/usr/lib/oracle/23/client64 && export LD_LIBRARY_PATH=$ORACLE_HOME/lib && /usr/local/bin/zerooraclaw setup-oracle'
 
-# -- 8. Run onboard --
+# -- 9. Run onboard --
 echo "--- Running onboard ---"
-sudo -u opc bash -c "export ORACLE_HOME=/usr/lib/oracle/23/client64 && export LD_LIBRARY_PATH=${ORACLE_HOME}/lib && /usr/local/bin/zerooraclaw onboard" <<< "n" || true
+sudo -u opc bash -c 'export ORACLE_HOME=/usr/lib/oracle/23/client64 && export LD_LIBRARY_PATH=$ORACLE_HOME/lib && /usr/local/bin/zerooraclaw onboard' <<< "n" || true
 
-# -- 9. Install and start gateway systemd service --
+# Wait for background Ollama model pull to complete
+echo "--- Waiting for Ollama model pull to finish ---"
+wait $OLLAMA_PID || true
+
+# -- 10. Install and start gateway systemd service --
 echo "--- Installing gateway service ---"
 cat > /etc/systemd/system/zerooraclaw-gateway.service <<'UNIT'
 [Unit]
@@ -201,6 +221,6 @@ UNIT
 systemctl daemon-reload
 systemctl enable --now zerooraclaw-gateway
 
-# -- 10. Done --
+# -- 11. Done --
 echo "=== ZeroOraClaw setup completed at $(date) ==="
 touch /var/log/zerooraclaw-setup-complete

@@ -6,6 +6,7 @@ write_files:
       ${indent(6, setup_script)}
 
   - path: /etc/environment.d/zerooraclaw.conf
+    permissions: '0600'
     content: |
       ORACLE_MODE=${oracle_mode}
       ORACLE_PWD=${oracle_password}

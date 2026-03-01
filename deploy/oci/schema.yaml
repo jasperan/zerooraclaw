@@ -22,8 +22,8 @@ variableGroups:
       - adb_admin_password
 
   - title: "Network Configuration"
-    visible: false
     variables:
+      - ssh_source_cidr
       - vcn_cidr
 
   - title: "Hidden"
@@ -97,6 +97,12 @@ variables:
       eq:
         - use_autonomous_db
         - true
+
+  ssh_source_cidr:
+    type: string
+    title: "SSH Source CIDR"
+    description: "CIDR block allowed to SSH into the instance. Set to your IP (e.g. 203.0.113.5/32) for security. Default allows all."
+    default: "0.0.0.0/0"
 
   vcn_cidr:
     type: string

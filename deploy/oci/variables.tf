@@ -58,3 +58,9 @@ variable "vcn_cidr" {
   type        = string
   default     = "10.0.0.0/16"
 }
+
+variable "ssh_source_cidr" {
+  description = "CIDR block allowed to SSH into the instance (restrict to your IP for security)"
+  type        = string
+  default     = "0.0.0.0/0"
+}

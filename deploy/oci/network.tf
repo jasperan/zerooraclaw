@@ -35,9 +35,9 @@ resource "oci_core_security_list" "zerooraclaw" {
     stateless   = false
   }
 
-  # SSH
+  # SSH (restrict via ssh_source_cidr variable for security)
   ingress_security_rules {
-    source    = "0.0.0.0/0"
+    source    = var.ssh_source_cidr
     protocol  = "6"
     stateless = false
     tcp_options {
