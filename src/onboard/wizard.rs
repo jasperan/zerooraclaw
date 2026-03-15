@@ -197,6 +197,7 @@ pub async fn run_wizard(force: bool) -> Result<Config> {
         mcp: crate::config::schema::McpConfig::default(),
         model_support_vision: None,
         wasm: crate::config::WasmConfig::default(),
+        oracle: crate::config::OracleConfig::default(),
     };
 
     println!(
@@ -561,6 +562,7 @@ async fn run_quick_setup_with_home(
         mcp: crate::config::schema::McpConfig::default(),
         model_support_vision: None,
         wasm: crate::config::WasmConfig::default(),
+        oracle: crate::config::OracleConfig::default(),
     };
     if no_totp {
         config.security.otp.enabled = false;

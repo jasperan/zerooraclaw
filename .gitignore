@@ -34,5 +34,13 @@ venv/
 credentials.json
 .worktrees/
 
+# Agent/skill directories (local only)
+.agents/
+.claude/
+.crush/
+.openhands/
+.serena/
+docs/plans/
+
 # Nix
 result

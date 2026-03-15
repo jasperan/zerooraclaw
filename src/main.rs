@@ -54,7 +54,7 @@ mod approval;
 mod auth;
 mod channels;
 mod rag {
-    pub use zeroclaw::rag::*;
+    pub use zerooraclaw::rag::*;
 }
 mod config;
 mod coordination;
@@ -75,6 +75,7 @@ mod migration;
 mod multimodal;
 mod observability;
 mod onboard;
+mod oracle;
 mod peripherals;
 mod providers;
 mod runtime;
@@ -90,7 +91,7 @@ mod util;
 use config::Config;
 
 // Re-export so binary modules can use crate::<CommandEnum> while keeping a single source of truth.
-pub use zeroclaw::{
+pub use zerooraclaw::{
     ChannelCommands, CronCommands, HardwareCommands, IntegrationCommands, MigrateCommands,
     PeripheralCommands, ServiceCommands, SkillCommands,
 };
@@ -445,7 +446,7 @@ Examples:
   zeroclaw hardware info --chip STM32F401RETx")]
     Hardware {
         #[command(subcommand)]
-        hardware_command: zeroclaw::HardwareCommands,
+        hardware_command: zerooraclaw::HardwareCommands,
     },
 
     /// Manage hardware peripherals (STM32, RPi GPIO, etc.)
@@ -464,7 +465,7 @@ Examples:
   zeroclaw peripheral flash-nucleo")]
     Peripheral {
         #[command(subcommand)]
-        peripheral_command: zeroclaw::PeripheralCommands,
+        peripheral_command: zerooraclaw::PeripheralCommands,
     },
 
     /// Manage agent memory (list, get, stats, clear)
@@ -516,6 +517,40 @@ Examples:
         /// Target shell
         #[arg(value_enum)]
         shell: CompletionShell,
+    },
+
+    /// Initialize Oracle AI Database schema and ONNX model
+    #[command(long_about = "\
+Initialize the Oracle AI Database backend for ZeroOraClaw.
+
+Creates the 8 ZERO_* tables, regular indexes, and vector indexes. \
+Checks that the ONNX embedding model is loaded. Seeds system prompts \
+from workspace .md files (IDENTITY.md, SOUL.md, etc.).
+
+Examples:
+  zerooraclaw setup-oracle")]
+    SetupOracle,
+
+    /// Inspect Oracle AI Database contents
+    #[command(long_about = "\
+Inspect the Oracle AI Database backend.
+
+Shows row counts for all ZERO_* tables and optionally displays \
+sample rows from a specific table. Use --search with the memories \
+table to perform a vector similarity search.
+
+Examples:
+  zerooraclaw oracle-inspect
+  zerooraclaw oracle-inspect memories
+  zerooraclaw oracle-inspect sessions
+  zerooraclaw oracle-inspect memories --search 'user preferences'")]
+    OracleInspect {
+        /// Table to inspect: all, memories, sessions, state, prompts, notes, transcripts, config
+        #[arg(default_value = "all")]
+        table: String,
+        /// Semantic search query (for memories table)
+        #[arg(short, long)]
+        search: Option<String>,
     },
 }
 
@@ -1153,7 +1188,298 @@ async fn main() -> Result<()> {
                 Ok(())
             }
         },
+
+        Commands::SetupOracle => handle_setup_oracle(&config).await,
+
+        Commands::OracleInspect { table, search } => {
+            handle_oracle_inspect(&config, &table, search.as_deref()).await
+        }
     }
+}
+
+async fn handle_setup_oracle(config: &Config) -> Result<()> {
+    use crate::oracle;
+
+    println!();
+    println!("  ZeroOraClaw Oracle Setup");
+    println!("  ========================");
+    println!();
+
+    // 1. Connect to Oracle
+    println!("  Connecting to Oracle ({} mode)...", config.oracle.mode);
+    let mgr = tokio::task::spawn_blocking({
+        let oracle_config = config.oracle.clone();
+        move || oracle::OracleConnectionManager::new(&oracle_config)
+    })
+    .await??;
+    println!("  Connected.");
+
+    // 2. Initialize schema
+    println!("  Initializing schema...");
+    let conn = mgr.conn();
+    let agent_id = mgr.agent_id().to_string();
+    tokio::task::spawn_blocking({
+        let conn = conn.clone();
+        let agent_id = agent_id.clone();
+        move || {
+            let guard = conn
+                .lock()
+                .map_err(|e| anyhow::anyhow!("Connection lock poisoned: {e}"))?;
+            oracle::schema::init_schema(&guard, &agent_id)
+        }
+    })
+    .await??;
+    println!("  Schema ready (8 ZERO_* tables + indexes).");
+
+    // 3. Check ONNX model
+    println!("  Checking ONNX embedding model '{}'...", mgr.onnx_model());
+    let embedding = oracle::OracleEmbedding::new(conn.clone(), mgr.onnx_model());
+    match embedding.check_onnx_model().await {
+        Ok(true) => println!("  ONNX model loaded and ready."),
+        Ok(false) => {
+            println!("  WARNING: ONNX model '{}' not found in USER_MINING_MODELS.", mgr.onnx_model());
+            println!("  Load it with: EXEC DBMS_VECTOR.LOAD_ONNX_MODEL(...)");
+        }
+        Err(e) => {
+            println!("  WARNING: Could not verify ONNX model: {e}");
+        }
+    }
+
+    // 4. Seed prompts from workspace
+    println!("  Seeding prompts from workspace...");
+    let workspace_dir = config.workspace_dir.clone();
+    let prompt_count = tokio::task::spawn_blocking({
+        let conn = conn.clone();
+        let agent_id = agent_id.clone();
+        move || {
+            let store = oracle::OraclePromptStore::new(conn, &agent_id);
+            store.seed_from_workspace(&workspace_dir)
+        }
+    })
+    .await??;
+    println!("  Seeded {prompt_count} prompt(s) from workspace.");
+
+    // 5. Summary
+    println!();
+    println!("  Setup complete!");
+    println!("  Agent ID:  {agent_id}");
+    if config.oracle.mode == "adb" {
+        let dsn_display = config.oracle.dsn.as_deref().unwrap_or("(no DSN)");
+        let dsn_short: String = dsn_display.chars().take(60).collect();
+        println!("  Database:  ADB ({}...)", dsn_short);
+    } else {
+        println!("  Database:  {}:{}/{}", config.oracle.host, config.oracle.port, config.oracle.service);
+    }
+    println!();
+
+    Ok(())
+}
+
+async fn handle_oracle_inspect(config: &Config, table: &str, search: Option<&str>) -> Result<()> {
+    use crate::oracle;
+
+    // Connect to Oracle
+    let mgr = tokio::task::spawn_blocking({
+        let oracle_config = config.oracle.clone();
+        move || oracle::OracleConnectionManager::new(&oracle_config)
+    })
+    .await??;
+
+    let conn = mgr.conn();
+    let agent_id = mgr.agent_id().to_string();
+
+    // Helper struct for table row counts
+    struct TableCount {
+        name: &'static str,
+        table_name: &'static str,
+    }
+
+    let tables = vec![
+        TableCount { name: "Memories", table_name: "ZERO_MEMORIES" },
+        TableCount { name: "Sessions", table_name: "ZERO_SESSIONS" },
+        TableCount { name: "Transcripts", table_name: "ZERO_TRANSCRIPTS" },
+        TableCount { name: "State", table_name: "ZERO_STATE" },
+        TableCount { name: "Daily Notes", table_name: "ZERO_DAILY_NOTES" },
+        TableCount { name: "Prompts", table_name: "ZERO_PROMPTS" },
+        TableCount { name: "Config", table_name: "ZERO_CONFIG" },
+        TableCount { name: "Meta", table_name: "ZERO_META" },
+    ];
+
+    // Gather all row counts
+    let counts = tokio::task::spawn_blocking({
+        let conn = conn.clone();
+        let agent_id = agent_id.clone();
+        move || -> anyhow::Result<Vec<(&'static str, i64)>> {
+            let guard = conn
+                .lock()
+                .map_err(|e| anyhow::anyhow!("Connection lock poisoned: {e}"))?;
+            let mut results = Vec::new();
+            for t in &tables {
+                let sql = format!(
+                    "SELECT COUNT(*) FROM {} WHERE agent_id = :1",
+                    t.table_name
+                );
+                let count: i64 = match guard.query_row_as(&sql, &[&agent_id]) {
+                    Ok(c) => c,
+                    Err(_) => -1, // table might not exist
+                };
+                results.push((t.name, count));
+            }
+            Ok(results)
+        }
+    })
+    .await??;
+
+    // Print dashboard
+    println!();
+    println!("  =======================================");
+    println!("    ZeroOraClaw Oracle Inspector");
+    println!("  =======================================");
+    println!();
+    println!("  Agent ID: {agent_id}");
+    println!();
+    println!("  {:<20} {:>6}", "Table", "Rows");
+    println!("  {}", "-".repeat(27));
+    for (name, count) in &counts {
+        if *count < 0 {
+            println!("  {:<20} {:>6}", name, "N/A");
+        } else {
+            println!("  {:<20} {:>6}", name, count);
+        }
+    }
+    println!();
+
+    // If a specific table is requested, show sample rows
+    let table_lower = table.to_ascii_lowercase();
+    if table_lower != "all" {
+        let conn2 = conn.clone();
+        let agent_id2 = agent_id.clone();
+        let _search_owned = search.map(|s| s.to_string());
+        let table_owned = table_lower.clone();
+
+        let sample_output = tokio::task::spawn_blocking(move || -> anyhow::Result<String> {
+            let guard = conn2
+                .lock()
+                .map_err(|e| anyhow::anyhow!("Connection lock poisoned: {e}"))?;
+            let mut out = String::new();
+
+            match table_owned.as_str() {
+                "memories" => {
+                    out.push_str("  Recent Memories (top 10):\n");
+                    out.push_str(&format!("  {:<36} {:<10} {}\n", "KEY", "CATEGORY", "CONTENT (truncated)"));
+                    out.push_str(&format!("  {}\n", "-".repeat(70)));
+                    let rows = guard.query(
+                        "SELECT key, category, content FROM ZERO_MEMORIES
+                         WHERE agent_id = :1 ORDER BY updated_at DESC FETCH FIRST 10 ROWS ONLY",
+                        &[&agent_id2],
+                    )?;
+                    for row_result in rows {
+                        let row = row_result?;
+                        let key: String = row.get(0)?;
+                        let cat: String = row.get(1)?;
+                        let content: String = row.get(2)?;
+                        let truncated = if content.len() > 60 {
+                            format!("{}...", &content[..57])
+                        } else {
+                            content
+                        };
+                        out.push_str(&format!("  {:<36} {:<10} {}\n", key, cat, truncated));
+                    }
+                }
+                "sessions" => {
+                    out.push_str("  Recent Sessions (top 10):\n");
+                    out.push_str(&format!("  {:<40} {}\n", "SESSION_KEY", "UPDATED_AT"));
+                    out.push_str(&format!("  {}\n", "-".repeat(60)));
+                    let rows = guard.query(
+                        "SELECT session_key, TO_CHAR(updated_at, 'YYYY-MM-DD HH24:MI:SS') FROM ZERO_SESSIONS
+                         WHERE agent_id = :1 ORDER BY updated_at DESC FETCH FIRST 10 ROWS ONLY",
+                        &[&agent_id2],
+                    )?;
+                    for row_result in rows {
+                        let row = row_result?;
+                        let key: String = row.get(0)?;
+                        let ts: String = row.get(1)?;
+                        out.push_str(&format!("  {:<40} {}\n", key, ts));
+                    }
+                }
+                "state" => {
+                    out.push_str("  State Entries:\n");
+                    out.push_str(&format!("  {:<30} {}\n", "KEY", "VALUE (truncated)"));
+                    out.push_str(&format!("  {}\n", "-".repeat(60)));
+                    let rows = guard.query(
+                        "SELECT state_key, value FROM ZERO_STATE
+                         WHERE agent_id = :1 ORDER BY state_key",
+                        &[&agent_id2],
+                    )?;
+                    for row_result in rows {
+                        let row = row_result?;
+                        let key: String = row.get(0)?;
+                        let val: Option<String> = row.get(1)?;
+                        let val_str = val.unwrap_or_default();
+                        let truncated = if val_str.len() > 50 {
+                            format!("{}...", &val_str[..47])
+                        } else {
+                            val_str
+                        };
+                        out.push_str(&format!("  {:<30} {}\n", key, truncated));
+                    }
+                }
+                "prompts" => {
+                    out.push_str("  Prompts:\n");
+                    out.push_str(&format!("  {:<20} {:>8}  {}\n", "NAME", "LENGTH", "PREVIEW"));
+                    out.push_str(&format!("  {}\n", "-".repeat(60)));
+                    let rows = guard.query(
+                        "SELECT prompt_name, content FROM ZERO_PROMPTS
+                         WHERE agent_id = :1 ORDER BY prompt_name",
+                        &[&agent_id2],
+                    )?;
+                    for row_result in rows {
+                        let row = row_result?;
+                        let name: String = row.get(0)?;
+                        let content: String = row.get(1)?;
+                        let preview = if content.len() > 40 {
+                            format!("{}...", &content[..37])
+                        } else {
+                            content.clone()
+                        };
+                        out.push_str(&format!("  {:<20} {:>8}  {}\n", name, content.len(), preview));
+                    }
+                }
+                "notes" | "daily_notes" => {
+                    out.push_str("  Daily Notes (top 10):\n");
+                    out.push_str(&format!("  {:<12} {:<30} {}\n", "DATE", "TITLE", "CONTENT (truncated)"));
+                    out.push_str(&format!("  {}\n", "-".repeat(70)));
+                    let rows = guard.query(
+                        "SELECT TO_CHAR(note_date, 'YYYY-MM-DD'), title, content FROM ZERO_DAILY_NOTES
+                         WHERE agent_id = :1 ORDER BY note_date DESC FETCH FIRST 10 ROWS ONLY",
+                        &[&agent_id2],
+                    )?;
+                    for row_result in rows {
+                        let row = row_result?;
+                        let date: String = row.get(0)?;
+                        let title: Option<String> = row.get(1)?;
+                        let content: String = row.get(2)?;
+                        let truncated = if content.len() > 40 {
+                            format!("{}...", &content[..37])
+                        } else {
+                            content
+                        };
+                        out.push_str(&format!("  {:<12} {:<30} {}\n", date, title.unwrap_or_default(), truncated));
+                    }
+                }
+                other => {
+                    out.push_str(&format!("  Unknown table: {other}\n"));
+                    out.push_str("  Valid tables: memories, sessions, state, prompts, notes\n");
+                }
+            }
+            Ok(out)
+        })
+        .await??;
+
+        print!("{sample_output}");
+    }
+
+    Ok(())
 }
 
 fn handle_estop_command(

@@ -283,6 +283,10 @@ pub struct Config {
     /// WASM plugin engine configuration (`[wasm]` section).
     #[serde(default)]
     pub wasm: WasmConfig,
+
+    /// Oracle AI Database configuration (`[oracle]`).
+    #[serde(default)]
+    pub oracle: OracleConfig,
 }
 
 /// Named provider profile definition compatible with Codex app-server style config.
@@ -5062,6 +5066,7 @@ impl Default for Config {
             mcp: McpConfig::default(),
             model_support_vision: None,
             wasm: WasmConfig::default(),
+            oracle: OracleConfig::default(),
         }
     }
 }
@@ -7096,6 +7101,89 @@ async fn sync_directory(path: &Path) -> Result<()> {
     {
         let _ = path;
         Ok(())
+    }
+}
+
+// ── Oracle AI Database ───────────────────────────────────────────
+
+fn default_oracle_mode() -> String {
+    "freepdb".into()
+}
+fn default_oracle_host() -> String {
+    "localhost".into()
+}
+fn default_oracle_port() -> u16 {
+    1521
+}
+fn default_oracle_service() -> String {
+    "FREEPDB1".into()
+}
+fn default_oracle_user() -> String {
+    "zerooraclaw".into()
+}
+fn default_oracle_onnx_model() -> String {
+    "ALL_MINILM_L12_V2".into()
+}
+fn default_oracle_agent_id() -> String {
+    "default".into()
+}
+fn default_oracle_max_connections() -> u32 {
+    4
+}
+
+/// Oracle AI Database configuration (`[oracle]`).
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct OracleConfig {
+    /// Connection mode: "freepdb" or "adb" (Autonomous Database)
+    #[serde(default = "default_oracle_mode")]
+    pub mode: String,
+    /// Database host (FreePDB mode)
+    #[serde(default = "default_oracle_host")]
+    pub host: String,
+    /// Database port (FreePDB mode)
+    #[serde(default = "default_oracle_port")]
+    pub port: u16,
+    /// Service name (FreePDB mode)
+    #[serde(default = "default_oracle_service")]
+    pub service: String,
+    /// Database user
+    #[serde(default = "default_oracle_user")]
+    pub user: String,
+    /// Database password (set via env ZEROORACLAW_ORACLE_PASSWORD recommended)
+    #[serde(default)]
+    pub password: String,
+    /// ONNX model name for in-database embeddings
+    #[serde(default = "default_oracle_onnx_model")]
+    pub onnx_model: String,
+    /// Agent ID for multi-agent data isolation
+    #[serde(default = "default_oracle_agent_id")]
+    pub agent_id: String,
+    /// Full DSN for ADB wallet-less TLS mode
+    #[serde(default)]
+    pub dsn: Option<String>,
+    /// Wallet directory path for ADB mTLS mode
+    #[serde(default)]
+    pub wallet_path: Option<String>,
+    /// Maximum pool connections
+    #[serde(default = "default_oracle_max_connections")]
+    pub max_connections: u32,
+}
+
+impl Default for OracleConfig {
+    fn default() -> Self {
+        Self {
+            mode: default_oracle_mode(),
+            host: default_oracle_host(),
+            port: default_oracle_port(),
+            service: default_oracle_service(),
+            user: default_oracle_user(),
+            password: String::new(),
+            onnx_model: default_oracle_onnx_model(),
+            agent_id: default_oracle_agent_id(),
+            dsn: None,
+            wallet_path: None,
+            max_connections: default_oracle_max_connections(),
+        }
     }
 }
 
