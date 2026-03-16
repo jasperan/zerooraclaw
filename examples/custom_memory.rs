@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Mutex;
 
-// ── Re-define the trait types (in your app, import from zeroclaw::memory) ──
+// ── Re-define the trait types (in your app, import from zerooraclaw::memory) ──
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum MemoryCategory {

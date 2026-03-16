@@ -112,7 +112,7 @@ impl ZeroClawController {
     /// Start the ZeroClaw gateway
     pub fn start(&self) -> Result<(), ZeroClawError> {
         let mut status = self.status.lock().map_err(|_| ZeroClawError::LockError)?;
-        
+
         if matches!(*status, AgentStatus::Running | AgentStatus::Starting) {
             return Ok(());
         }
@@ -122,8 +122,8 @@ impl ZeroClawController {
 
         // TODO: Actually start the gateway
         // runtime().spawn(async move {
-        //     let config = zeroclaw::Config::load()?;
-        //     let gateway = zeroclaw::Gateway::new(config).await?;
+        //     let config = zerooraclaw::Config::load()?;
+        //     let gateway = zerooraclaw::Gateway::new(config).await?;
         //     gateway.run().await
         // });
 
@@ -138,7 +138,7 @@ impl ZeroClawController {
     /// Stop the gateway
     pub fn stop(&self) -> Result<(), ZeroClawError> {
         let mut status = self.status.lock().map_err(|_| ZeroClawError::LockError)?;
-        
+
         // TODO: Actually stop the gateway
         // if let Some(gateway) = self.gateway.lock()?.take() {
         //     gateway.shutdown();
@@ -162,7 +162,7 @@ impl ZeroClawController {
     /// Send a message to the agent
     pub fn send_message(&self, content: String) -> SendResult {
         let msg_id = uuid_v4();
-        
+
         // Add user message
         if let Ok(mut messages) = self.messages.lock() {
             messages.push(ChatMessage {
@@ -296,7 +296,7 @@ mod tests {
         let controller = ZeroClawController::with_defaults("/tmp/zeroclaw".to_string());
         let result = controller.send_message("Hello".to_string());
         assert!(result.success);
-        
+
         let messages = controller.get_messages();
         assert_eq!(messages.len(), 2); // User + assistant
     }

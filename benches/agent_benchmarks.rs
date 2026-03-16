@@ -13,14 +13,14 @@ use criterion::{criterion_group, criterion_main, Criterion};
 use std::hint::black_box;
 use std::sync::{Arc, Mutex};
 
-use zeroclaw::agent::agent::Agent;
-use zeroclaw::agent::dispatcher::{NativeToolDispatcher, ToolDispatcher, XmlToolDispatcher};
-use zeroclaw::config::MemoryConfig;
-use zeroclaw::memory;
-use zeroclaw::memory::{Memory, MemoryCategory};
-use zeroclaw::observability::{NoopObserver, Observer};
-use zeroclaw::providers::{ChatRequest, ChatResponse, Provider, ToolCall};
-use zeroclaw::tools::{Tool, ToolResult};
+use zerooraclaw::agent::agent::Agent;
+use zerooraclaw::agent::dispatcher::{NativeToolDispatcher, ToolDispatcher, XmlToolDispatcher};
+use zerooraclaw::config::MemoryConfig;
+use zerooraclaw::memory;
+use zerooraclaw::memory::{Memory, MemoryCategory};
+use zerooraclaw::observability::{NoopObserver, Observer};
+use zerooraclaw::providers::{ChatRequest, ChatResponse, Provider, ToolCall};
+use zerooraclaw::tools::{Tool, ToolResult};
 
 use anyhow::Result;
 use async_trait::async_trait;

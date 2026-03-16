@@ -15,9 +15,9 @@
 //! ```
 
 use async_trait::async_trait;
-use zeroclaw::hooks::{HookHandler, HookResult};
-use zeroclaw::plugins::{Plugin, PluginApi, PluginManifest};
-use zeroclaw::tools::traits::{Tool, ToolResult, ToolSpec};
+use zerooraclaw::hooks::{HookHandler, HookResult};
+use zerooraclaw::plugins::{Plugin, PluginApi, PluginManifest};
+use zerooraclaw::tools::traits::{Tool, ToolResult, ToolSpec};
 
 // ── Manifest ─────────────────────────────────────────────────────────────────
 

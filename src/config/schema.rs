@@ -7699,6 +7699,7 @@ default_temperature = 0.7
             mcp: McpConfig::default(),
             model_support_vision: None,
             wasm: WasmConfig::default(),
+            oracle: OracleConfig::default(),
         };
 
         let toml_str = toml::to_string_pretty(&config).unwrap();
@@ -8070,6 +8071,7 @@ tool_dispatcher = "xml"
             mcp: McpConfig::default(),
             model_support_vision: None,
             wasm: WasmConfig::default(),
+            oracle: OracleConfig::default(),
         };
 
         config.save().await.unwrap();

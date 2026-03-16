@@ -14,7 +14,7 @@
 //! # Quick start
 //!
 //! ```rust,ignore
-//! use zeroclaw::plugins::{Plugin, PluginApi, PluginManifest};
+//! use zerooraclaw::plugins::{Plugin, PluginApi, PluginManifest};
 //!
 //! pub struct MyPlugin { manifest: PluginManifest }
 //!
