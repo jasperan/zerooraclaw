@@ -1,6 +1,14 @@
 name: Deploy GitHub Pages
 
 on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - site/**
+      - docs/**
+      - README.md
+      - .github/workflows/pages-deploy.yml
   push:
     branches:
       - main
@@ -28,6 +36,39 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Derive Repository Base Path
+        id: repo_base_path
+        shell: bash
+        run: |
+          set -euo pipefail
+          owner="${GITHUB_REPOSITORY%%/*}"
+          repo="${GITHUB_REPOSITORY##*/}"
+          if [ "$repo" = "${owner}.github.io" ]; then
+            base_path="/"
+          else
+            base_path="/$repo"
+          fi
+          echo "value=$base_path" >> "$GITHUB_OUTPUT"
+
+      - name: Configure Pages
+        if: github.event_name != 'pull_request'
+        id: pages
+        uses: actions/configure-pages@v5
+
+      - name: Resolve Effective Base Path
+        id: effective_base_path
+        shell: bash
+        env:
+          CONFIGURED_BASE_PATH: ${{ steps.pages.outputs.base_path }}
+          REPOSITORY_BASE_PATH: ${{ steps.repo_base_path.outputs.value }}
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
+            echo "value=${REPOSITORY_BASE_PATH}" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=${CONFIGURED_BASE_PATH}" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -39,12 +80,37 @@ jobs:
         working-directory: site
         run: npm ci
 
+      - name: Run Site Tests
+        working-directory: site
+        run: npm test
+
       - name: Build Site
         working-directory: site
+        env:
+          VITE_BASE_PATH: ${{ steps.effective_base_path.outputs.value }}
         run: npm run build
 
-      - name: Configure Pages
-        uses: actions/configure-pages@v5
+      - name: Verify Built Base Path
+        env:
+          EXPECTED_BASE_PATH: ${{ steps.effective_base_path.outputs.value }}
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+
+          raw_base = (os.environ.get("EXPECTED_BASE_PATH") or "").strip()
+          normalized_base = "/" if not raw_base or raw_base == "/" else f"/{raw_base.strip('/')}/"
+          html = Path("gh-pages/index.html").read_text(encoding="utf-8")
+          expected_tokens = [
+              f'src="{normalized_base}assets/',
+              f'href="{normalized_base}assets/',
+          ]
+          missing = [token for token in expected_tokens if token not in html]
+          if missing:
+              raise SystemExit(
+                  f"missing expected base-path tokens for {normalized_base!r} in gh-pages/index.html: {missing}"
+              )
+          PY
 
       - name: Upload Artifact
         uses: actions/upload-pages-artifact@v3
@@ -52,6 +118,7 @@ jobs:
           path: gh-pages
 
   deploy:
+    if: github.event_name != 'pull_request'
     needs: build
     runs-on: ubuntu-latest
     environment:

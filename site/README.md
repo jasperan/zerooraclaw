@@ -20,14 +20,14 @@ npm run build
 Build output is generated at:
 
 ```text
-/home/ubuntu/zeroclaw/gh-pages
+<repo-root>/gh-pages
 ```
 
 Notes:
 
 - Output directory is intentionally `gh-pages/` (not `out/`).
-- Vite base is configured to `/zeroclaw/` for `https://zeroclaw-labs.github.io/zeroclaw/`.
-- Docs links in UI point to rendered GitHub docs pages for direct reading.
+- Vite base path is derived from the current GitHub Pages site metadata when the workflow provides it, or falls back to the current repository slug for local builds.
+- Docs source links in UI point to the current repository instead of being hardcoded to the upstream fork source.
 - Docs Navigator supports:
   - keyword search with weighted ranking
   - category and level filters (`Core` / `Advanced`)
