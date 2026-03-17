@@ -1,30 +1,6 @@
 name: Feature Matrix
 
 on:
-    push:
-        branches: [dev, main]
-        paths:
-            - "Cargo.toml"
-            - "Cargo.lock"
-            - "src/**"
-            - "crates/**"
-            - "tests/**"
-            - "scripts/ci/nightly_matrix_report.py"
-            - ".github/release/nightly-owner-routing.json"
-            - ".github/workflows/feature-matrix.yml"
-    pull_request:
-        branches: [dev, main]
-        paths:
-            - "Cargo.toml"
-            - "Cargo.lock"
-            - "src/**"
-            - "crates/**"
-            - "tests/**"
-            - "scripts/ci/nightly_matrix_report.py"
-            - ".github/release/nightly-owner-routing.json"
-            - ".github/workflows/feature-matrix.yml"
-    merge_group:
-        branches: [dev, main]
     schedule:
         - cron: "30 4 * * 1" # Weekly Monday 04:30 UTC
         - cron: "15 3 * * *" # Daily 03:15 UTC (nightly profile)

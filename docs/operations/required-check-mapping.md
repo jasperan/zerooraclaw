@@ -4,11 +4,11 @@ This document maps merge-critical workflows to expected check names.
 
 ## Merge to `dev` / `main`
 
+> Fork note: on `jasperan/zerooraclaw`, the heavy `Security Audit` and `Feature Matrix` lanes are no longer part of the normal PR/push hot path. The cheap post-merge signal is now `Main Smoke` from `.github/workflows/test-e2e.yml`.
+
 | Required check name | Source workflow | Scope |
 | --- | --- | --- |
 | `CI Required Gate` | `.github/workflows/ci-run.yml` | core Rust/doc merge gate |
-| `Security Audit` | `.github/workflows/sec-audit.yml` | dependencies, secrets, governance |
-| `Feature Matrix Summary` | `.github/workflows/feature-matrix.yml` | feature-combination compile matrix |
 | `Workflow Sanity` | `.github/workflows/workflow-sanity.yml` | workflow syntax and lint |
 
 Feature matrix lane check names (informational, non-required):
@@ -24,7 +24,12 @@ Feature matrix lane check names (informational, non-required):
 | --- | --- | --- |
 | `Main Promotion Gate` | `.github/workflows/main-promotion-gate.yml` | branch + actor policy |
 | `CI Required Gate` | `.github/workflows/ci-run.yml` | baseline quality gate |
-| `Security Audit` | `.github/workflows/sec-audit.yml` | security baseline |
+
+## Post-merge `main` signals
+
+| Signal | Source workflow | Scope |
+| --- | --- | --- |
+| `Rust Smoke Check` | `.github/workflows/test-e2e.yml` | cheap hosted post-merge sanity build |
 
 ## Release / Pre-release
 
@@ -37,8 +42,8 @@ Feature matrix lane check names (informational, non-required):
 ## Verification Procedure
 
 1. Resolve latest workflow run IDs:
-   - `gh run list --repo zeroclaw-labs/zeroclaw --workflow feature-matrix.yml --limit 1`
    - `gh run list --repo zeroclaw-labs/zeroclaw --workflow ci-run.yml --limit 1`
+   - `gh run list --repo zeroclaw-labs/zeroclaw --workflow test-e2e.yml --limit 1`
 2. Enumerate check/job names and compare to this mapping:
    - `gh run view <run_id> --repo zeroclaw-labs/zeroclaw --json jobs --jq '.jobs[].name'`
 3. If any merge-critical check name changed, update this file before changing branch protection policy.

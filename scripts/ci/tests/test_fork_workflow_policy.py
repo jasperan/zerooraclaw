@@ -24,10 +24,8 @@ UPSTREAM_ONLY_SELF_HOSTED_WORKFLOWS = {
     "ci-provider-connectivity.yml",
     "ci-reproducible-build.yml",
     "ci-run.yml",
-    "feature-matrix.yml",
     "main-promotion-gate.yml",
     "pub-docker-img.yml",
-    "sec-audit.yml",
     "sec-codeql.yml",
 }
 

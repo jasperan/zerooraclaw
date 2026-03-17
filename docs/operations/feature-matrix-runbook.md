@@ -2,6 +2,8 @@
 
 This runbook defines the feature matrix CI lanes used to validate key compile combinations.
 
+> Fork note: on `jasperan/zerooraclaw`, this workflow is no longer in the routine PR/push hot path. It remains an upstream-only guarded maintenance lane, so local manual/scheduled runs on this fork will skip unless that guard is intentionally removed.
+
 Workflow: `.github/workflows/feature-matrix.yml`
 
 Profiles:
@@ -18,11 +20,13 @@ Profiles:
 
 ## Triggering
 
-- PRs and pushes to `dev` / `main` on Rust + workflow paths
-- merge queue (`merge_group`)
+On this fork, `.github/workflows/feature-matrix.yml` currently declares only:
+
 - weekly schedule (`compile`)
 - daily schedule (`nightly`)
 - manual dispatch (`profile=compile|nightly`)
+
+There are no PR, push, or `merge_group` triggers in this fork copy of the workflow. Even the scheduled/manual paths skip here unless the upstream-only `github.repository == 'zeroclaw-labs/zeroclaw'` guard is intentionally removed.
 
 ## Artifacts
 
@@ -40,9 +44,7 @@ Profiles:
 
 ## Required Check Contract
 
-Branch protection should use stable, non-matrix-expanded check names for merge gates:
-
-- `Feature Matrix Summary` (from `feature-matrix.yml`)
+On this fork, `Feature Matrix Summary` is no longer part of the normal merge gate. Treat it as an upstream-only operational signal for scheduled/manual matrix sweeps.
 
 Matrix lane jobs stay observable but are not required check targets:
 
@@ -55,6 +57,7 @@ Check-name stability rule:
 
 - Do not rename the job names above without updating `docs/operations/required-check-mapping.md`.
 - Keep lane names in the matrix include-list stable to avoid check-name drift.
+- On this fork, treat these names as operational/manual identifiers rather than merge-gate requirements.
 
 Verification commands:
 
