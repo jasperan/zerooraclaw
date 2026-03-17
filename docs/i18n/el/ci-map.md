@@ -1,47 +1,60 @@
 # Οδηγός Αυτόματων Ελέγχων (CI Map)
 
-Το παρόν έγγραφο περιγράφει τη δομή και τις λειτουργίες των αυτοματοποιημένων ελέγχων (GitHub Actions) στο ZeroClaw.
+Αυτός ο οδηγός περιγράφει μόνο τις ροές εργασίας που παραμένουν ενεργές και χρήσιμες στο fork `jasperan/zerooraclaw`.
 
-## 1. Έλεγχοι Υποχρεωτικής Έγκρισης (Merge-Blocking)
+## Ενεργές βασικές ροές
 
-Αυτοί οι έλεγχοι είναι ντετερμινιστικοί και αποτελούν προϋπόθεση για τη συγχώνευση οποιασδήποτε αλλαγής στον κλάδο `main`.
+### Υγιεινή PR / workflow
 
-- **CI (`ci-run.yml`)**
-    - **Σκοπός**: Επαλήθευση σύνταξης Rust, εκτέλεση test suite και ποιοτικός έλεγχος τεκμηρίωσης (docs).
-    - **Σημείωση**: Αλλαγές στο CI απαιτούν ρητή έγκριση από τους Maintainers.
 - **Workflow Sanity (`workflow-sanity.yml`)**
-    - **Σκοπός**: Επαλήθευση της ακεραιότητας των αρχείων YAML των GitHub Actions.
+  - Έλεγχος αρχείων workflow (`actionlint`, tabs)
+- **CI/CD Change Audit (`ci-change-audit.yml`)**
+  - Έλεγχος αλλαγών CI / security policy
 - **PR Intake Checks (`pr-intake-checks.yml`)**
-    - **Σκοπός**: Ταχεία διαλογή PR, έλεγχος πληρότητας πληροφοριών και συμμόρφωση με τα πρότυπα κώδικα (linting).
+  - Γρήγορη διαλογή PR και αρχικό feedback
+- **PR Labeler (`pr-labeler.yml`)**
+  - Αυτόματες ετικέτες μεγέθους / κινδύνου / διαδρομών
+- **PR Auto Responder (`pr-auto-response.yml`)**
+  - Υποδοχή νέων συνεισφερόντων και label-driven αυτοματισμοί
+- **Label Policy Sanity (`pr-label-policy-check.yml`)**
+  - Έλεγχος συνέπειας της κοινής πολιτικής labels
 
-## 2. Προαιρετικοί και Συμπληρωματικοί Έλεγχοι
+### Σήματα για `main`
 
-- **Docker (`pub-docker-img.yml`)**: Επαλήθευση containerization και κατασκευή images για πολλαπλές αρχιτεκτονικές.
-- **Security Audit (`sec-audit.yml`)**: Σάρωση εξαρτήσεων για γνωστές ευπάθειες.
-- **CodeQL Analysis (`sec-codeql.yml`)**: Στατική ανάλυση κώδικα για τον εντοπισμό κινδύνων ασφαλείας.
-- **Release Automation (`pub-release.yml`)**: Διαδικασία δημιουργίας επίσημων releases.
+- **Main Smoke (`test-e2e.yml`)**
+  - Φθηνός hosted Rust smoke check για `main`
+  - Εκτελεί: `cargo check --locked --workspace --lib --bins`
+- **Deploy GitHub Pages (`pages-deploy.yml`)**
+  - Build και publish του frontend στο GitHub Pages
+- **Docs Deploy (`docs-deploy.yml`)**
+  - Έλεγχος docs + preview/deploy bundle
 
-## 3. Αυτοματοποίηση Διεργασιών
+## Χειροκίνητες / προγραμματισμένες ροές
 
-- **PR Labeler**: Αυτόματη ταξινόμηση PR βάσει μεγέθους (`size:*`) και κινδύνου (`risk:*`).
-- **PR Auto Responder**: Αυτοματοποιημένη υποδοχή νέων συνεισφερόντων.
-- **Stale Manager**: Διαχείριση ανενεργών Issues και PRs.
-- **Dependabot**: Αυτόματη ενημέρωση εξαρτήσεων.
+Παραμένουν διαθέσιμες μόνο όταν χρειάζονται:
 
-## 4. Προγραμματισμός Εκτέλεσης
+- `pub-release.yml`
+- `pub-prerelease.yml`
+- `ci-canary-gate.yml`
+- `ci-rollback.yml`
+- `ci-supply-chain-provenance.yml`
+- `ci-connectivity-probes.yml`
+- `nightly-all-features.yml`
+- `sec-vorpal-reviewdog.yml`
+- `test-benchmarks.yml`
+- `test-fuzz.yml`
+- `test-rust-build.yml`
+- `pr-check-stale.yml`
+- `pr-check-status.yml`
+- `sync-contributors.yml`
 
-| Έλεγχος | Συχνότητα / Ερέθισμα |
-|:---|:---|
-| CI / Security | Push, Pull Request |
-| Docker / Release | Tag Push (`v*`) |
-| Hygiene (Stale) | Καθημερινά |
+## Γρήγορη διάγνωση
 
-## 5. Οδηγίες Αντιμετώπισης Αποτυχιών
-
-1. **CI Gate Failure**: Ανατρέξτε στα logs της εργασίας `ci-run.yml`.
-2. **Docker Build Failure**: Ελέγξτε το `pub-docker-img.yml` για σφάλματα στο Dockerfile.
-3. **Security Findings**: Συμβουλευτείτε την αναφορά του `sec-audit.yml` για απαρχαιωμένες βιβλιοθήκες.
-4. **Documentation Issues**: Ελέγξτε την ενότητα `docs-quality` στο `ci-run.yml`.
+1. Πρόβλημα σε workflow files: ελέγξτε το `workflow-sanity.yml`.
+2. Πρόβλημα σε CI/security policy: ελέγξτε το `ci-change-audit.yml`.
+3. Πρόβλημα σε docs/site στο `main`: ελέγξτε `docs-deploy.yml` και `pages-deploy.yml`.
+4. Γρήγορη επιβεβαίωση μετά από merge: ελέγξτε το `Main Smoke`.
+5. Πρόβλημα σε release: ελέγξτε `pub-release.yml` / `pub-prerelease.yml`.
 
 > [!IMPORTANT]
-> Οι έλεγχοι Merge-Blocking πρέπει να παραμένουν σταθεροί και γρήγοροι. Αποφύγετε την προσθήκη χρονοβόρων διαδικασιών στην κύρια ροή του CI.
+> Το fork προτιμά σύντομους hosted ελέγχους αντί για βαριές upstream-only ροές που δεν βοηθούν την τοπική χρήση του zerooraclaw.
