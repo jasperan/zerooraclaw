@@ -79,8 +79,13 @@ type PaletteEntry = {
   run: () => void;
 };
 
-const repoBase = "https://github.com/zeroclaw-labs/zeroclaw/blob/main";
-const rawBase = "https://raw.githubusercontent.com/zeroclaw-labs/zeroclaw/main";
+declare const __SITE_REPOSITORY_URL__: string;
+declare const __SITE_SOURCE_BLOB_BASE_URL__: string;
+declare const __SITE_RAW_BASE_URL__: string;
+
+const repositoryUrl = __SITE_REPOSITORY_URL__;
+const repoBase = __SITE_SOURCE_BLOB_BASE_URL__;
+const rawBase = __SITE_RAW_BASE_URL__;
 
 const languageNames: Record<string, Localized> = {
   en: { en: "English", zh: "英文" },
@@ -932,6 +937,7 @@ export default function App(): JSX.Element {
   }, [docSet]);
 
   const activePath = selectedDoc?.path ?? "";
+  const activeSourceUrl = withRepo(activePath);
   const markdown = markdownCache[activePath] ?? "";
 
   useEffect(() => {
@@ -1270,7 +1276,7 @@ export default function App(): JSX.Element {
 
           <nav className="top-nav" aria-label="Primary">
             <a href="#docs-workspace">{text.navDocs}</a>
-            <a href="https://github.com/zeroclaw-labs/zeroclaw" target="_blank" rel="noreferrer">
+            <a href={repositoryUrl} target="_blank" rel="noreferrer">
               {text.navGitHub}
             </a>
             <a href="https://zeroclawlabs.ai" target="_blank" rel="noreferrer">
@@ -1670,7 +1676,7 @@ export default function App(): JSX.Element {
                   ) : null}
                 </div>
                 <div className="reader-actions">
-                  <a href={withRepo(activePath)} target="_blank" rel="noreferrer">
+                  <a href={activeSourceUrl} target="_blank" rel="noreferrer">
                     {text.openOnGithub}
                   </a>
                   <a href={withRaw(activePath)} target="_blank" rel="noreferrer">
@@ -1683,7 +1689,7 @@ export default function App(): JSX.Element {
 
               {!loading && error ? (
                 <p className="reader-status">
-                  {text.fallback} <a href={withRepo(activePath)}>{withRepo(activePath)}</a>
+                  {text.fallback} <a href={activeSourceUrl}>{activeSourceUrl}</a>
                 </p>
               ) : null}
 

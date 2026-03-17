@@ -85,6 +85,7 @@ env:
 
 jobs:
     audit:
+        if: github.repository == 'zeroclaw-labs/zeroclaw' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
         name: Security Audit
         runs-on: [self-hosted, aws-india]
         timeout-minutes: 20
@@ -100,6 +101,7 @@ jobs:
                   token: ${{ secrets.GITHUB_TOKEN }}
 
     deny:
+        if: github.repository == 'zeroclaw-labs/zeroclaw' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
         name: License & Supply Chain
         runs-on: [self-hosted, aws-india]
         timeout-minutes: 20
@@ -155,6 +157,7 @@ jobs:
                   retention-days: 14
 
     security-regressions:
+        if: github.repository == 'zeroclaw-labs/zeroclaw' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
         name: Security Regression Tests
         runs-on: [self-hosted, aws-india]
         timeout-minutes: 30
@@ -171,6 +174,7 @@ jobs:
               run: ./scripts/ci/security_regression_tests.sh
 
     secrets:
+        if: github.repository == 'zeroclaw-labs/zeroclaw' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
         name: Secrets Governance (Gitleaks)
         runs-on: [self-hosted, aws-india]
         timeout-minutes: 20
@@ -366,6 +370,7 @@ jobs:
                   retention-days: 14
 
     sbom:
+        if: github.repository == 'zeroclaw-labs/zeroclaw' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
         name: SBOM Snapshot
         runs-on: [self-hosted, aws-india]
         timeout-minutes: 20
@@ -431,6 +436,7 @@ jobs:
                   retention-days: 14
 
     unsafe-debt:
+        if: github.repository == 'zeroclaw-labs/zeroclaw' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
         name: Unsafe Debt Audit
         runs-on: [self-hosted, aws-india]
         timeout-minutes: 20
@@ -569,7 +575,7 @@ jobs:
 
     security-required:
         name: Security Required Gate
-        if: always() && (github.event_name == 'pull_request' || github.event_name == 'push' || github.event_name == 'merge_group')
+        if: always() && github.repository == 'zeroclaw-labs/zeroclaw' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && (github.event_name == 'pull_request' || github.event_name == 'push' || github.event_name == 'merge_group')
         needs: [audit, deny, security-regressions, secrets, sbom, unsafe-debt]
         runs-on: [self-hosted, aws-india]
         steps:

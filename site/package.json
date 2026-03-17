@@ -6,6 +6,7 @@
   "scripts": {
     "predev": "node scripts/generate-docs-manifest.mjs",
     "prebuild": "node scripts/generate-docs-manifest.mjs",
+    "test": "node --test scripts/*.test.mjs",
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview --host"
