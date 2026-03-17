@@ -34,15 +34,16 @@ Merge-blocking checks should stay small and deterministic. Optional checks are u
     - Additional behavior: `ghcr_publish_contract_guard.py` enforces GHCR publish contract from `.github/release/ghcr-tag-policy.json` (`vX.Y.Z`, `sha-<12>`, `latest` digest parity + rollback mapping evidence)
     - Additional behavior: `ghcr_vulnerability_gate.py` enforces policy-driven Trivy gate + parity checks from `.github/release/ghcr-vulnerability-policy.json` and emits `ghcr-vulnerability-gate` audit evidence
 - `.github/workflows/feature-matrix.yml` (`Feature Matrix`)
-    - Purpose: compile-time matrix validation for `default`, `whatsapp-web`, `browser-native`, and `nightly-all-features` lanes
+    - Purpose: optional compile-time matrix validation for `default`, `whatsapp-web`, `browser-native`, and `nightly-all-features` lanes
     - Additional behavior: each lane emits machine-readable result artifacts; summary lane aggregates owner routing from `.github/release/nightly-owner-routing.json`
-    - Additional behavior: supports `compile` (merge-gate) and `nightly` (integration-oriented) profiles with bounded retry policy and trend snapshot artifact (`nightly-history.json`)
-    - Additional behavior: required-check mapping is anchored to stable job name `Feature Matrix Summary`; lane jobs stay informational
+    - Additional behavior: supports `compile` and `nightly` profiles with bounded retry policy and trend snapshot artifact (`nightly-history.json`)
+    - Additional behavior: intended for upstream-only manual dispatch and scheduled trend runs; on this fork it will skip unless the upstream-only guard is intentionally removed
 - `.github/workflows/nightly-all-features.yml` (`Nightly All-Features`)
     - Purpose: legacy/dev-only nightly template; primary nightly signal is emitted by `feature-matrix.yml` nightly profile
     - Additional behavior: owner routing + escalation policy is documented in `docs/operations/nightly-all-features-runbook.md`
 - `.github/workflows/sec-audit.yml` (`Security Audit`)
     - Purpose: dependency advisories (`rustsec/audit-check`, pinned SHA), policy/license checks (`cargo deny`), gitleaks-based secrets governance (allowlist policy metadata + expiry guard), and SBOM snapshot artifacts (`CycloneDX` + `SPDX`)
+    - Additional behavior: intended for upstream-only manual dispatch and scheduled baseline audits; on this fork it remains guard-railed and will skip unless the upstream-only restriction is removed
 - `.github/workflows/sec-codeql.yml` (`CodeQL Analysis`)
     - Purpose: static analysis for security findings on PR/push (Rust/codeql paths) plus scheduled/manual runs
 - `.github/workflows/ci-connectivity-probes.yml` (`Connectivity Probes`)
@@ -66,6 +67,9 @@ Merge-blocking checks should stay small and deterministic. Optional checks are u
     - Purpose: build release artifacts in verification mode (manual/scheduled) and publish GitHub releases on tag push or manual publish mode
 - `.github/workflows/pr-label-policy-check.yml` (`Label Policy Sanity`)
     - Purpose: validate shared contributor-tier policy in `.github/label-policy.json` and ensure label workflows consume that policy
+- `.github/workflows/test-e2e.yml` (`Main Smoke`)
+    - Purpose: cheap hosted Rust smoke check for `main` using `cargo check --locked --workspace --lib --bins`
+    - Additional behavior: manual dispatch stays available when you want a quick sanity run without waking heavier lanes
 - `.github/workflows/test-rust-build.yml` (`Rust Reusable Job`)
     - Purpose: reusable Rust setup/cache + command runner for workflow-call consumers
 
@@ -100,10 +104,11 @@ Merge-blocking checks should stay small and deterministic. Optional checks are u
 
 - `CI`: push to `dev` and `main`, PRs to `dev` and `main`, merge queue `merge_group` for `dev`/`main`
 - `Docker`: tag push (`v*`) for publish, matching PRs to `dev`/`main` for smoke build, manual dispatch for smoke only
-- `Feature Matrix`: PR/push on Rust + workflow paths, merge queue, weekly schedule, manual dispatch
+- `Feature Matrix`: scheduled runs and manual dispatch only
 - `Nightly All-Features`: daily schedule and manual dispatch
 - `Release`: tag push (`v*`), weekly schedule (verification-only), manual dispatch (verification or publish)
-- `Security Audit`: push to `dev` and `main`, PRs to `dev` and `main`, weekly schedule
+- `Security Audit`: scheduled runs and manual dispatch only
+- `Main Smoke`: push to `main`, manual dispatch
 - `Sec Vorpal Reviewdog`: manual dispatch only
 - `Workflow Sanity`: PR/push when `.github/workflows/**`, `.github/*.yml`, or `.github/*.yaml` change
 - `Main Promotion Gate`: PRs to `main` only; requires PR author `willsarg`/`theonlyhennygod` and head branch `dev` in the same repository
@@ -131,7 +136,7 @@ Merge-blocking checks should stay small and deterministic. Optional checks are u
 ## Maintenance Rules
 
 - Keep merge-blocking checks deterministic and reproducible (`--locked` where applicable).
-- Keep merge-queue compatibility explicit by supporting `merge_group` on required workflows (`ci-run`, `sec-audit`, and `sec-codeql`).
+- Keep merge-queue compatibility explicit only on workflows that still act as real merge gates for the active branch policy.
 - Keep PRs mapped to Linear issue keys (`RMN-*`/`CDV-*`/`COM-*`) via PR intake checks.
 - Keep `deny.toml` advisory ignore entries in object form with explicit reasons (enforced by `deny_policy_guard.py`).
 - Keep deny ignore governance metadata current in `.github/security/deny-ignore-governance.json` (owner/reason/expiry/ticket enforced by `deny_policy_guard.py`).
@@ -165,3 +170,4 @@ Merge-blocking checks should stay small and deterministic. Optional checks are u
 - Keep auto-close behavior scoped to issues; maintainers own PR close/merge decisions.
 - If automation is wrong, correct labels first, then continue review with explicit rationale.
 - Use `superseded` / `stale-candidate` labels to prune duplicate or dormant PRs before deep review.
+

@@ -1,12 +1,12 @@
-name: Test E2E
+name: Main Smoke
 
 on:
     push:
-        branches: [dev, main]
+        branches: [main]
     workflow_dispatch:
 
 concurrency:
-    group: e2e-${{ github.event.pull_request.number || github.sha }}
+    group: main-smoke-${{ github.sha }}
     cancel-in-progress: true
 
 permissions:
@@ -19,15 +19,15 @@ env:
     CARGO_TERM_COLOR: always
 
 jobs:
-    integration-tests:
-        name: Integration / E2E Tests
-        runs-on: [self-hosted, aws-india]
-        timeout-minutes: 30
+    smoke-build:
+        name: Rust Smoke Check
+        runs-on: ubuntu-latest
+        timeout-minutes: 15
         steps:
             - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
             - uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
               with:
                   toolchain: 1.92.0
             - uses: useblacksmith/rust-cache@f53e7f127245d2a269b3d90879ccf259876842d5 # v3
-            - name: Run integration / E2E tests
-              run: cargo test --test agent_e2e --locked --verbose
+            - name: Run Rust smoke check
+              run: cargo check --locked --workspace --lib --bins

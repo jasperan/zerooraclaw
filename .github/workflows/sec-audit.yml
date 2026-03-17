@@ -1,52 +1,6 @@
 name: Sec Audit
 
 on:
-    push:
-        branches: [dev, main]
-        paths:
-            - "Cargo.toml"
-            - "Cargo.lock"
-            - "src/**"
-            - "crates/**"
-            - "deny.toml"
-            - ".gitleaks.toml"
-            - ".github/security/gitleaks-allowlist-governance.json"
-            - ".github/security/deny-ignore-governance.json"
-            - ".github/security/unsafe-audit-governance.json"
-            - "scripts/ci/install_gitleaks.sh"
-            - "scripts/ci/install_syft.sh"
-            - "scripts/ci/deny_policy_guard.py"
-            - "scripts/ci/secrets_governance_guard.py"
-            - "scripts/ci/unsafe_debt_audit.py"
-            - "scripts/ci/unsafe_policy_guard.py"
-            - "scripts/ci/config/unsafe_debt_policy.toml"
-            - "scripts/ci/emit_audit_event.py"
-            - "scripts/ci/security_regression_tests.sh"
-            - ".github/workflows/sec-audit.yml"
-    pull_request:
-        branches: [dev, main]
-        paths:
-            - "Cargo.toml"
-            - "Cargo.lock"
-            - "src/**"
-            - "crates/**"
-            - "deny.toml"
-            - ".gitleaks.toml"
-            - ".github/security/gitleaks-allowlist-governance.json"
-            - ".github/security/deny-ignore-governance.json"
-            - ".github/security/unsafe-audit-governance.json"
-            - "scripts/ci/install_gitleaks.sh"
-            - "scripts/ci/install_syft.sh"
-            - "scripts/ci/deny_policy_guard.py"
-            - "scripts/ci/secrets_governance_guard.py"
-            - "scripts/ci/unsafe_debt_audit.py"
-            - "scripts/ci/unsafe_policy_guard.py"
-            - "scripts/ci/config/unsafe_debt_policy.toml"
-            - "scripts/ci/emit_audit_event.py"
-            - "scripts/ci/security_regression_tests.sh"
-            - ".github/workflows/sec-audit.yml"
-    merge_group:
-        branches: [dev, main]
     schedule:
         - cron: "0 6 * * 1" # Weekly on Monday 6am UTC
     workflow_dispatch:
