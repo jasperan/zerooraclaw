@@ -54,6 +54,16 @@ class ForkWorkflowPolicyTests(unittest.TestCase):
                     offenders.append(f"{relpath}:{workflow}")
         self.assertEqual([], offenders)
 
+    def test_localized_docs_do_not_reference_removed_workflows(self) -> None:
+        offenders: list[str] = []
+        for path in sorted((REPO_ROOT / 'docs' / 'i18n').rglob('*.md')):
+            text = path.read_text(encoding='utf-8')
+            relpath = path.relative_to(REPO_ROOT)
+            for workflow in sorted(REMOVED_UPSTREAM_ONLY_WORKFLOWS):
+                if workflow in text:
+                    offenders.append(f"{relpath}:{workflow}")
+        self.assertEqual([], offenders)
+
 
 if __name__ == "__main__":
     unittest.main()
