@@ -102,7 +102,7 @@ Merge-blocking checks should stay small and deterministic. Optional checks are u
 
 ## Trigger Map
 
-- `CI`: push to `dev` and `main`, PRs to `dev` and `main`, merge queue `merge_group` for `dev`/`main`
+- `CI`: push to `dev`, PRs to `dev` and `main`, merge queue `merge_group` for `dev`
 - `Docker`: tag push (`v*`) for publish, matching PRs to `dev`/`main` for smoke build, manual dispatch for smoke only
 - `Feature Matrix`: scheduled runs and manual dispatch only
 - `Nightly All-Features`: daily schedule and manual dispatch
