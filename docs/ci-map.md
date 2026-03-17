@@ -1,173 +1,81 @@
 # CI Workflow Map
 
-This document explains what each GitHub workflow does, when it runs, and whether it should block merges.
+This document describes the workflows that still matter on the `jasperan/zerooraclaw` fork.
 
-For event-by-event delivery behavior across PR, merge, push, and release, see [`.github/workflows/main-branch-flow.md`](../.github/workflows/main-branch-flow.md).
+The fork intentionally dropped a chunk of upstream-only or permanently skipped CI so the normal path stays small and local-friendly.
 
-## Merge-Blocking vs Optional
+## Active Routine Workflows
 
-Merge-blocking checks should stay small and deterministic. Optional checks are useful for automation and maintenance, but should not block normal development.
+### PR / push hygiene
 
-### Merge-Blocking
+- `.github/workflows/workflow-sanity.yml`
+  - Purpose: lint workflow files (`actionlint`, tab checks)
+  - Trigger: PR/push when workflow files change
+- `.github/workflows/ci-change-audit.yml`
+  - Purpose: audit CI/security workflow changes for unpinned actions, risky permissions, and similar policy drift
+  - Trigger: PR/push when CI/security files change
+- `.github/workflows/pr-intake-checks.yml`
+  - Purpose: intake validation and early sticky feedback on PRs
+  - Trigger: `pull_request_target`
+- `.github/workflows/pr-labeler.yml`
+  - Purpose: path/size/risk labels
+  - Trigger: `pull_request_target`
+- `.github/workflows/pr-auto-response.yml`
+  - Purpose: first-interaction and label-driven automation
+  - Trigger: `issues`, `pull_request_target`
+- `.github/workflows/pr-label-policy-check.yml`
+  - Purpose: validate shared label policy wiring
+  - Trigger: PR/push when label policy automation files change
 
-- `.github/workflows/ci-run.yml` (`CI`)
-    - Purpose: Rust validation (`cargo fmt --all -- --check`, `cargo clippy --locked --all-targets -- -D clippy::correctness`, strict delta lint gate on changed Rust lines, `test`, release build smoke) + docs quality checks when docs change (`markdownlint` blocks only issues on changed lines; link check scans only links added on changed lines)
-    - Additional behavior: for Rust-impacting PRs and pushes, `CI Required Gate` requires `lint` + `test` + `build` (no PR build-only bypass)
-    - Additional behavior: rust-cache is partitioned per job role via `prefix-key` to reduce cache churn across lint/test/build/flake-probe lanes
-    - Additional behavior: emits `test-flake-probe` artifact from single-retry probe when tests fail; optional blocking can be enabled with repository variable `CI_BLOCK_ON_FLAKE_SUSPECTED=true`
-    - Additional behavior: PRs that change `.github/workflows/**` require at least one approving review from a login in `WORKFLOW_OWNER_LOGINS` (repository variable fallback: `theonlyhennygod,willsarg`)
-    - Additional behavior: PRs that change root license files (`LICENSE-APACHE`, `LICENSE-MIT`) must be authored by `willsarg`
-    - Additional behavior: lint gates run before `test`/`build`; when lint/docs gates fail on PRs, CI posts an actionable feedback comment with failing gate names and local fix commands
-    - Merge gate: `CI Required Gate`
-- `.github/workflows/workflow-sanity.yml` (`Workflow Sanity`)
-    - Purpose: lint GitHub workflow files (`actionlint`, tab checks)
-    - Recommended for workflow-changing PRs
-- `.github/workflows/pr-intake-checks.yml` (`PR Intake Checks`)
-    - Purpose: safe pre-CI PR checks (template completeness, added-line tabs/trailing-whitespace/conflict markers) with immediate sticky feedback comment
-- `.github/workflows/main-promotion-gate.yml` (`Main Promotion Gate`)
-    - Purpose: enforce stable-branch policy by allowing only `dev` -> `main` PR promotion authored by `willsarg` or `theonlyhennygod`
+### Main branch confidence lanes
 
-### Non-Blocking but Important
-
-- `.github/workflows/pub-docker-img.yml` (`Docker`)
-    - Purpose: PR Docker smoke check on `dev`/`main` PRs and publish images on tag pushes (`v*`) only
-    - Additional behavior: `ghcr_publish_contract_guard.py` enforces GHCR publish contract from `.github/release/ghcr-tag-policy.json` (`vX.Y.Z`, `sha-<12>`, `latest` digest parity + rollback mapping evidence)
-    - Additional behavior: `ghcr_vulnerability_gate.py` enforces policy-driven Trivy gate + parity checks from `.github/release/ghcr-vulnerability-policy.json` and emits `ghcr-vulnerability-gate` audit evidence
-- `.github/workflows/feature-matrix.yml` (`Feature Matrix`)
-    - Purpose: optional compile-time matrix validation for `default`, `whatsapp-web`, `browser-native`, and `nightly-all-features` lanes
-    - Additional behavior: each lane emits machine-readable result artifacts; summary lane aggregates owner routing from `.github/release/nightly-owner-routing.json`
-    - Additional behavior: supports `compile` and `nightly` profiles with bounded retry policy and trend snapshot artifact (`nightly-history.json`)
-    - Additional behavior: intended for upstream-only manual dispatch and scheduled trend runs; on this fork it will skip unless the upstream-only guard is intentionally removed
-- `.github/workflows/nightly-all-features.yml` (`Nightly All-Features`)
-    - Purpose: legacy/dev-only nightly template; primary nightly signal is emitted by `feature-matrix.yml` nightly profile
-    - Additional behavior: owner routing + escalation policy is documented in `docs/operations/nightly-all-features-runbook.md`
-- `.github/workflows/sec-audit.yml` (`Security Audit`)
-    - Purpose: dependency advisories (`rustsec/audit-check`, pinned SHA), policy/license checks (`cargo deny`), gitleaks-based secrets governance (allowlist policy metadata + expiry guard), and SBOM snapshot artifacts (`CycloneDX` + `SPDX`)
-    - Additional behavior: intended for upstream-only manual dispatch and scheduled baseline audits; on this fork it remains guard-railed and will skip unless the upstream-only restriction is removed
-- `.github/workflows/sec-codeql.yml` (`CodeQL Analysis`)
-    - Purpose: static analysis for security findings on PR/push (Rust/codeql paths) plus scheduled/manual runs
-- `.github/workflows/ci-connectivity-probes.yml` (`Connectivity Probes`)
-    - Purpose: legacy manual wrapper for provider endpoint probe diagnostics (delegates to config-driven probe engine)
-    - Output: uploads `connectivity-report.json` and `connectivity-summary.md`
-    - Usage: prefer `CI Provider Connectivity` for scheduled + PR/push coverage
-- `.github/workflows/ci-change-audit.yml` (`CI/CD Change Audit`)
-    - Purpose: machine-auditable diff report for CI/security workflow changes (line churn, new `uses:` references, unpinned action-policy violations, pipe-to-shell policy violations, broad `permissions: write-all` grants, new `pull_request_target` trigger introductions, new secret references)
-- `.github/workflows/ci-provider-connectivity.yml` (`CI Provider Connectivity`)
-    - Purpose: scheduled/manual/provider-list probe matrix with downloadable JSON/Markdown artifacts for provider endpoint reachability
-- `.github/workflows/ci-reproducible-build.yml` (`CI Reproducible Build`)
-    - Purpose: deterministic build drift probe (double clean-build hash comparison) with structured artifacts
-- `.github/workflows/ci-supply-chain-provenance.yml` (`CI Supply Chain Provenance`)
-    - Purpose: release-fast artifact provenance statement generation + keyless signature bundle for supply-chain traceability
-- `.github/workflows/ci-rollback.yml` (`CI Rollback Guard`)
-    - Purpose: deterministic rollback plan generation with guarded execute mode, marker-tag option, rollback audit artifacts, and dispatch contract for canary-abort auto-triggering
-- `.github/workflows/sec-vorpal-reviewdog.yml` (`Sec Vorpal Reviewdog`)
-    - Purpose: manual secure-coding feedback scan for supported non-Rust files (`.py`, `.js`, `.jsx`, `.ts`, `.tsx`) using reviewdog annotations
-    - Noise control: excludes common test/fixture paths and test file patterns by default (`include_tests=false`)
-- `.github/workflows/pub-release.yml` (`Release`)
-    - Purpose: build release artifacts in verification mode (manual/scheduled) and publish GitHub releases on tag push or manual publish mode
-- `.github/workflows/pr-label-policy-check.yml` (`Label Policy Sanity`)
-    - Purpose: validate shared contributor-tier policy in `.github/label-policy.json` and ensure label workflows consume that policy
 - `.github/workflows/test-e2e.yml` (`Main Smoke`)
-    - Purpose: cheap hosted Rust smoke check for `main` using `cargo check --locked --workspace --lib --bins`
-    - Additional behavior: manual dispatch stays available when you want a quick sanity run without waking heavier lanes
-- `.github/workflows/test-rust-build.yml` (`Rust Reusable Job`)
-    - Purpose: reusable Rust setup/cache + command runner for workflow-call consumers
+  - Purpose: cheap hosted Rust smoke check for `main`
+  - Command: `cargo check --locked --workspace --lib --bins`
+  - Trigger: push to `main`, manual dispatch
+- `.github/workflows/pages-deploy.yml`
+  - Purpose: build and publish the GitHub Pages frontend
+  - Trigger: docs/site/README/workflow changes, manual dispatch
+- `.github/workflows/docs-deploy.yml`
+  - Purpose: docs quality + preview/deploy bundle
+  - Trigger: docs/README/workflow changes, manual dispatch
 
-### Optional Repository Automation
+## Active Manual / Scheduled Workflows
 
-- `.github/workflows/pr-labeler.yml` (`PR Labeler`)
-    - Purpose: scope/path labels + size/risk labels + fine-grained module labels (`<module>: <component>`)
-    - Additional behavior: label descriptions are auto-managed as hover tooltips to explain each auto-judgment rule
-    - Additional behavior: provider-related keywords in provider/config/onboard/integration changes are promoted to `provider:*` labels (for example `provider:kimi`, `provider:deepseek`)
-    - Additional behavior: hierarchical de-duplication keeps only the most specific scope labels (for example `tool:composio` suppresses `tool:core` and `tool`)
-    - Additional behavior: module namespaces are compacted — one specific module keeps `prefix:component`; multiple specifics collapse to just `prefix`
-    - Additional behavior: applies contributor tiers on PRs by merged PR count (`trusted` >=5, `experienced` >=10, `principal` >=20, `distinguished` >=50)
-    - Additional behavior: final label set is priority-sorted (`risk:*` first, then `size:*`, then contributor tier, then module/path labels)
-    - Additional behavior: managed label colors follow display order to produce a smooth left-to-right gradient when many labels are present
-    - Manual governance: supports `workflow_dispatch` with `mode=audit|repair` to inspect/fix managed label metadata drift across the whole repository
-    - Additional behavior: risk + size labels are auto-corrected on manual PR label edits (`labeled`/`unlabeled` events); apply `risk: manual` when maintainers intentionally override automated risk selection
-    - High-risk heuristic paths: `src/security/**`, `src/runtime/**`, `src/gateway/**`, `src/tools/**`, `.github/workflows/**`
-    - Guardrail: maintainers can apply `risk: manual` to freeze automated risk recalculation
-- `.github/workflows/pr-auto-response.yml` (`PR Auto Responder`)
-    - Purpose: first-time contributor onboarding + label-driven response routing (`r:support`, `r:needs-repro`, etc.)
-    - Additional behavior: applies contributor tiers on issues by merged PR count (`trusted` >=5, `experienced` >=10, `principal` >=20, `distinguished` >=50), matching PR tier thresholds exactly
-    - Additional behavior: contributor-tier labels are treated as automation-managed (manual add/remove on PR/issue is auto-corrected)
-    - Guardrail: label-based close routes are issue-only; PRs are never auto-closed by route labels
-- `.github/workflows/pr-check-stale.yml` (`Stale`)
-    - Purpose: stale issue/PR lifecycle automation
-- `.github/dependabot.yml` (`Dependabot`)
-    - Purpose: grouped, rate-limited dependency update PRs (Cargo + GitHub Actions)
-- `.github/workflows/pr-check-status.yml` (`PR Hygiene`)
-    - Purpose: nudge stale-but-active PRs to rebase/re-run required checks before queue starvation
+These remain in the repo for occasional operations work:
 
-## Trigger Map
+- `.github/workflows/pub-release.yml`
+- `.github/workflows/pub-prerelease.yml`
+- `.github/workflows/ci-canary-gate.yml`
+- `.github/workflows/ci-rollback.yml`
+- `.github/workflows/ci-supply-chain-provenance.yml`
+- `.github/workflows/ci-connectivity-probes.yml`
+- `.github/workflows/nightly-all-features.yml`
+- `.github/workflows/sec-vorpal-reviewdog.yml`
+- `.github/workflows/test-benchmarks.yml`
+- `.github/workflows/test-fuzz.yml`
+- `.github/workflows/test-rust-build.yml`
+- `.github/workflows/pr-check-stale.yml`
+- `.github/workflows/pr-check-status.yml`
+- `.github/workflows/sync-contributors.yml`
 
-- `CI`: push to `dev`, PRs to `dev` and `main`, merge queue `merge_group` for `dev`
-- `Docker`: tag push (`v*`) for publish, matching PRs to `dev`/`main` for smoke build, manual dispatch for smoke only
-- `Feature Matrix`: scheduled runs and manual dispatch only
-- `Nightly All-Features`: daily schedule and manual dispatch
-- `Release`: tag push (`v*`), weekly schedule (verification-only), manual dispatch (verification or publish)
-- `Security Audit`: scheduled runs and manual dispatch only
-- `Main Smoke`: push to `main`, manual dispatch
-- `Sec Vorpal Reviewdog`: manual dispatch only
-- `Workflow Sanity`: PR/push when `.github/workflows/**`, `.github/*.yml`, or `.github/*.yaml` change
-- `Main Promotion Gate`: PRs to `main` only; requires PR author `willsarg`/`theonlyhennygod` and head branch `dev` in the same repository
-- `Dependabot`: all update PRs target `dev` (not `main`)
-- `PR Intake Checks`: `pull_request_target` on opened/reopened/synchronize/edited/ready_for_review
-- `Label Policy Sanity`: PR/push when `.github/label-policy.json`, `.github/workflows/pr-labeler.yml`, or `.github/workflows/pr-auto-response.yml` changes
-- `PR Labeler`: `pull_request_target` lifecycle events
-- `PR Auto Responder`: issue opened/labeled, `pull_request_target` opened/labeled
-- `Stale PR Check`: daily schedule, manual dispatch
-- `PR Hygiene`: every 12 hours schedule, manual dispatch
+## Practical Trigger Map
+
+- PR automation: `pr-intake-checks.yml`, `pr-labeler.yml`, `pr-auto-response.yml`
+- PR/push workflow governance: `workflow-sanity.yml`, `ci-change-audit.yml`, `pr-label-policy-check.yml`
+- Push to `main`: `Main Smoke`, `Deploy GitHub Pages`, `Docs Deploy` (path-scoped)
+- Release / maintenance: manual or scheduled workflows listed above
 
 ## Fast Triage Guide
 
-1. `CI Required Gate` failing: start with `.github/workflows/ci-run.yml`.
-2. Docker failures on PRs: inspect `.github/workflows/pub-docker-img.yml` `pr-smoke` job.
-   - For tag-publish failures, inspect `ghcr-publish-contract.json` / `audit-event-ghcr-publish-contract.json`, `ghcr-vulnerability-gate.json` / `audit-event-ghcr-vulnerability-gate.json`, and Trivy artifacts from `pub-docker-img.yml`.
-3. Release failures (tag/manual/scheduled): inspect `.github/workflows/pub-release.yml` and the `prepare` job outputs.
-4. Security failures: inspect `.github/workflows/sec-audit.yml` and `deny.toml`.
-5. Workflow syntax/lint failures: inspect `.github/workflows/workflow-sanity.yml`.
-6. PR intake failures: inspect `.github/workflows/pr-intake-checks.yml` sticky comment and run logs.
-7. Label policy parity failures: inspect `.github/workflows/pr-label-policy-check.yml`.
-8. Docs failures in CI: inspect `docs-quality` job logs in `.github/workflows/ci-run.yml`.
-9. Strict delta lint failures in CI: inspect `lint-strict-delta` job logs and compare with `BASE_SHA` diff scope.
+1. Workflow files fail lint: check `workflow-sanity.yml`.
+2. CI/security policy complaint: check `ci-change-audit.yml`.
+3. Docs/site problem on `main`: check `docs-deploy.yml` and `pages-deploy.yml`.
+4. Local confidence after merge: check `Main Smoke`.
+5. Release trouble: check `pub-release.yml` / `pub-prerelease.yml`.
 
-## Maintenance Rules
+## Notes
 
-- Keep merge-blocking checks deterministic and reproducible (`--locked` where applicable).
-- Keep merge-queue compatibility explicit only on workflows that still act as real merge gates for the active branch policy.
-- Keep PRs mapped to Linear issue keys (`RMN-*`/`CDV-*`/`COM-*`) via PR intake checks.
-- Keep `deny.toml` advisory ignore entries in object form with explicit reasons (enforced by `deny_policy_guard.py`).
-- Keep deny ignore governance metadata current in `.github/security/deny-ignore-governance.json` (owner/reason/expiry/ticket enforced by `deny_policy_guard.py`).
-- Keep gitleaks allowlist governance metadata current in `.github/security/gitleaks-allowlist-governance.json` (owner/reason/expiry/ticket enforced by `secrets_governance_guard.py`).
-- Keep audit event schema + retention metadata aligned with `docs/audit-event-schema.md` (`emit_audit_event.py` envelope + workflow artifact policy).
-- Keep rollback operations guarded and reversible (`ci-rollback.yml` defaults to `dry-run`; `execute` is manual and policy-gated).
-- Keep canary policy thresholds and sample-size rules current in `.github/release/canary-policy.json`.
-- Keep GHCR tag taxonomy and immutability policy current in `.github/release/ghcr-tag-policy.json` and `docs/operations/ghcr-tag-policy.md`.
-- Keep GHCR vulnerability gate policy current in `.github/release/ghcr-vulnerability-policy.json` and `docs/operations/ghcr-vulnerability-policy.md`.
-- Keep pre-release stage transition policy + matrix coverage + transition audit semantics current in `.github/release/prerelease-stage-gates.json`.
-- Keep required check naming stable and documented in `docs/operations/required-check-mapping.md` before changing branch protection settings.
-- Follow `docs/release-process.md` for verify-before-publish release cadence and tag discipline.
-- Keep merge-blocking rust quality policy aligned across `.github/workflows/ci-run.yml`, `dev/ci.sh`, and `.githooks/pre-push` (`./scripts/ci/rust_quality_gate.sh` + `./scripts/ci/rust_strict_delta_gate.sh`).
-- Use `./scripts/ci/rust_strict_delta_gate.sh` (or `./dev/ci.sh lint-delta`) as the incremental strict merge gate for changed Rust lines.
-- Run full strict lint audits regularly via `./scripts/ci/rust_quality_gate.sh --strict` (for example through `./dev/ci.sh lint-strict`) and track cleanup in focused PRs.
-- Keep docs markdown gating incremental via `./scripts/ci/docs_quality_gate.sh` (block changed-line issues, report baseline issues separately).
-- Keep docs link gating incremental via `./scripts/ci/collect_changed_links.py` + lychee (check only links added on changed lines).
-- Keep docs deploy policy current in `.github/release/docs-deploy-policy.json`, `docs/operations/docs-deploy-policy.md`, and `docs/operations/docs-deploy-runbook.md`.
-- Prefer explicit workflow permissions (least privilege).
-- Keep Actions source policy restricted to approved allowlist patterns (see `docs/actions-source-policy.md`).
-- Use path filters for expensive workflows when practical.
-- Keep docs quality checks low-noise (incremental markdown + incremental added-link checks).
-- Keep dependency update volume controlled (grouping + PR limits).
-- Install third-party CI tooling through repository-managed pinned installers with checksum verification (for example `scripts/ci/install_gitleaks.sh`, `scripts/ci/install_syft.sh`); avoid remote `curl | sh` patterns.
-- Avoid mixing onboarding/community automation with merge-gating logic.
-
-## Automation Side-Effect Controls
-
-- Prefer deterministic automation that can be manually overridden (`risk: manual`) when context is nuanced.
-- Keep auto-response comments deduplicated to prevent triage noise.
-- Keep auto-close behavior scoped to issues; maintainers own PR close/merge decisions.
-- If automation is wrong, correct labels first, then continue review with explicit rationale.
-- Use `superseded` / `stale-candidate` labels to prune duplicate or dormant PRs before deep review.
-
+- This fork favors short hosted checks over long self-hosted lanes.
+- If a heavy workflow becomes useful again, add it back deliberately instead of keeping it around in a permanently skipped state.
+- Translated CI docs may lag this file. Treat this English map as the current fork source of truth.

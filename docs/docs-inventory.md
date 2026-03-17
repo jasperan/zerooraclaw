@@ -79,7 +79,6 @@ Compatibility shims such as `docs/SUMMARY.<locale>.md` and `docs/vi/**` remain v
 | `docs/langgraph-integration.md` | Current Integration Guide | integration developers |
 | `docs/proxy-agent-playbook.md` | Current Operations Playbook | operators/maintainers |
 | `docs/operations-runbook.md` | Current Guide | operators |
-| `docs/operations/connectivity-probes-runbook.md` | Current CI/ops Runbook | maintainers/operators |
 | `docs/troubleshooting.md` | Current Guide | users/operators |
 | `docs/network-deployment.md` | Current Guide | operators |
 | `docs/mattermost-setup.md` | Current Guide | operators |

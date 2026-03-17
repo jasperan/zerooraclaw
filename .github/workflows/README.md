@@ -19,9 +19,6 @@ Workflow behavior documentation in this directory:
 
 Current workflow helper scripts:
 
-- `.github/workflows/scripts/ci_workflow_owner_approval.js`
-- `.github/workflows/scripts/ci_license_file_owner_guard.js`
-- `.github/workflows/scripts/lint_feedback.js`
 - `.github/workflows/scripts/pr_auto_response_contributor_tier.js`
 - `.github/workflows/scripts/pr_auto_response_labeled_routes.js`
 - `.github/workflows/scripts/pr_check_status_nudge.js`
