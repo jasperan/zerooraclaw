@@ -59,6 +59,7 @@ env:
 
 jobs:
     resolve-profile:
+        if: github.repository == 'zeroclaw-labs/zeroclaw' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
         name: Resolve Matrix Profile
         runs-on: [self-hosted, aws-india]
         outputs:
@@ -130,6 +131,7 @@ jobs:
                   } >> "$GITHUB_OUTPUT"
 
     feature-check:
+        if: github.repository == 'zeroclaw-labs/zeroclaw' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
         name: ${{ needs.resolve-profile.outputs.lane_job_prefix }} (${{ matrix.name }})
         needs: [resolve-profile]
         runs-on: [self-hosted, aws-india]
@@ -284,7 +286,7 @@ jobs:
     summary:
         name: ${{ needs.resolve-profile.outputs.summary_job_name }}
         needs: [resolve-profile, feature-check]
-        if: always()
+        if: always() && github.repository == 'zeroclaw-labs/zeroclaw' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
         runs-on: [self-hosted, aws-india]
         steps:
             - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
