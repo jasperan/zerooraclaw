@@ -37,10 +37,9 @@ This fork keeps the normal PR/push path intentionally lean.
 ### Merge to `main`
 
 1. The merge lands on `main`.
-2. `ci-run.yml` is still triggerable on `main`, but on this fork it remains an upstream-only guarded lane and skips.
-3. `test-e2e.yml` runs as a cheap hosted smoke check using `cargo check --locked --workspace --lib --bins`.
-4. Docs/pages and other path-scoped workflows run when matching files changed.
-5. Heavy maintenance workflows remain manual or scheduled.
+2. `test-e2e.yml` runs as a cheap hosted smoke check using `cargo check --locked --workspace --lib --bins`.
+3. Docs/pages and other path-scoped workflows run when matching files changed.
+4. Heavy maintenance workflows remain manual or scheduled.
 
 ### Maintenance Lanes
 
