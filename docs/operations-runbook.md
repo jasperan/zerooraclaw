@@ -101,25 +101,18 @@ zeroclaw service start
 
 5. If gateway is involved, verify bind/auth settings (`[gateway]`) and local reachability.
 
-## Secret Leak Incident Response (CI Gitleaks)
+## Secret Leak Incident Response
 
-When `sec-audit.yml` reports a gitleaks finding or uploads SARIF alerts:
+If a manual secret scan or release-time security review finds exposed credentials:
 
-1. Confirm whether the finding is a true credential leak or a test/doc false positive:
-   - review `gitleaks.sarif` + `gitleaks-summary.json` artifacts
-   - inspect changed commit range in the workflow summary
+1. Confirm whether the finding is a true credential leak or a false positive.
 2. If true positive:
    - revoke/rotate the exposed secret immediately
    - remove leaked material from reachable history when required by policy
    - open an incident record and track remediation ownership
 3. If false positive:
    - prefer narrowing detection scope first
-   - only add allowlist entries with explicit governance metadata (`owner`, `reason`, `ticket`, `expires_on`)
-   - ensure the related governance ticket is linked in the PR
-4. Re-run `Sec Audit` and confirm:
-   - gitleaks lane green
-   - governance guard green
-   - SARIF upload succeeds
+   - document why the finding is safe to ignore
 
 ## Safe Change Procedure
 

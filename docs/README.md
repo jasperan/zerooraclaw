@@ -21,7 +21,6 @@ Localized hubs: [简体中文](i18n/zh-CN/README.md) · [日本語](i18n/ja/READ
 | Use LangGraph integration patterns | [langgraph-integration.md](langgraph-integration.md) |
 | Apply proxy scope safely | [proxy-agent-playbook.md](proxy-agent-playbook.md) |
 | Operate runtime (day-2 runbook) | [operations-runbook.md](operations-runbook.md) |
-| Operate provider connectivity probes in CI | [operations/connectivity-probes-runbook.md](operations/connectivity-probes-runbook.md) |
 | Troubleshoot install/runtime/channel issues | [troubleshooting.md](troubleshooting.md) |
 | Run Matrix encrypted-room setup and diagnostics | [matrix-e2ee-guide.md](matrix-e2ee-guide.md) |
 | Build deterministic SOP procedures | [sop/README.md](sop/README.md) |

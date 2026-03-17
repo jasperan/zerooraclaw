@@ -54,9 +54,6 @@ Retention is encoded in workflow artifact uploads and mirrored into event metada
 | Workflow | Artifact/Event | Retention |
 | --- | --- | --- |
 | `ci-change-audit.yml` | `ci-change-audit*` | 14 days |
-| `ci-provider-connectivity.yml` | `provider-connectivity*` | 14 days |
-| `ci-reproducible-build.yml` | `reproducible-build*` | 14 days |
-| `sec-audit.yml` | deny/secrets/gitleaks/sbom artifacts | 14 days |
 | `ci-rollback.yml` | `ci-rollback-plan*` | 21 days |
 | `ci-supply-chain-provenance.yml` | `supply-chain-provenance` | 30 days |
 

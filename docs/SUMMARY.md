@@ -55,7 +55,6 @@ Last refreshed: **February 25, 2026**.
 
 - [operations/README.md](operations/README.md)
 - [operations-runbook.md](operations-runbook.md)
-- [operations/connectivity-probes-runbook.md](operations/connectivity-probes-runbook.md)
 - [release-process.md](release-process.md)
 - [troubleshooting.md](troubleshooting.md)
 - [network-deployment.md](network-deployment.md)
