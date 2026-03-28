@@ -1,11 +1,11 @@
 use super::traits::{Channel, ChannelMessage, SendMessage};
-use anyhow::Context;
 use async_trait::async_trait;
 use futures_util::{SinkExt, StreamExt};
 use parking_lot::Mutex;
 use reqwest::multipart::{Form, Part};
 use serde_json::json;
 use std::collections::HashMap;
+use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use tokio_tungstenite::tungstenite::Message;
 use uuid::Uuid;
@@ -17,9 +17,25 @@ pub struct DiscordChannel {
     allowed_users: Vec<String>,
     listen_to_bots: bool,
     mention_only: bool,
-    group_reply_allowed_sender_ids: Vec<String>,
-    workspace_dir: Option<PathBuf>,
     typing_handles: Mutex<HashMap<String, tokio::task::JoinHandle<()>>>,
+    /// Per-channel proxy URL override.
+    proxy_url: Option<String>,
+    /// Voice transcription config — when set, audio attachments are
+    /// downloaded, transcribed, and their text inlined into the message.
+    transcription: Option<crate::config::TranscriptionConfig>,
+    transcription_manager: Option<std::sync::Arc<super::transcription::TranscriptionManager>>,
+    /// Streaming mode: Off, Partial (draft edits), or MultiMessage (paragraph splits).
+    stream_mode: crate::config::StreamMode,
+    /// Minimum interval (ms) between draft message edits (Partial mode only).
+    draft_update_interval_ms: u64,
+    /// Delay (ms) between sending each message chunk (MultiMessage mode only).
+    multi_message_delay_ms: u64,
+    /// Per-channel rate-limit tracking for draft edits.
+    last_draft_edit: Mutex<HashMap<String, std::time::Instant>>,
+    /// Tracks how much text has been sent in MultiMessage mode.
+    multi_message_sent_len: Mutex<HashMap<String, usize>>,
+    /// Thread context captured from `send_draft()` for MultiMessage paragraph delivery.
+    multi_message_thread_ts: Mutex<HashMap<String, Option<String>>>,
 }
 
 impl DiscordChannel {
@@ -36,26 +52,59 @@ impl DiscordChannel {
             allowed_users,
             listen_to_bots,
             mention_only,
-            group_reply_allowed_sender_ids: Vec::new(),
-            workspace_dir: None,
             typing_handles: Mutex::new(HashMap::new()),
+            proxy_url: None,
+            transcription: None,
+            transcription_manager: None,
+            stream_mode: crate::config::StreamMode::Off,
+            draft_update_interval_ms: 1000,
+            multi_message_delay_ms: 800,
+            last_draft_edit: Mutex::new(HashMap::new()),
+            multi_message_sent_len: Mutex::new(HashMap::new()),
+            multi_message_thread_ts: Mutex::new(HashMap::new()),
         }
     }
 
-    /// Configure sender IDs that bypass mention gating in guild channels.
-    pub fn with_group_reply_allowed_senders(mut self, sender_ids: Vec<String>) -> Self {
-        self.group_reply_allowed_sender_ids = normalize_group_reply_allowed_sender_ids(sender_ids);
+    /// Set a per-channel proxy URL that overrides the global proxy config.
+    pub fn with_proxy_url(mut self, proxy_url: Option<String>) -> Self {
+        self.proxy_url = proxy_url;
         self
     }
 
-    /// Configure workspace directory used for validating local attachment paths.
-    pub fn with_workspace_dir(mut self, dir: PathBuf) -> Self {
-        self.workspace_dir = Some(dir);
+    /// Configure voice transcription for audio attachments.
+    pub fn with_transcription(mut self, config: crate::config::TranscriptionConfig) -> Self {
+        if !config.enabled {
+            return self;
+        }
+        match super::transcription::TranscriptionManager::new(&config) {
+            Ok(m) => {
+                self.transcription_manager = Some(std::sync::Arc::new(m));
+                self.transcription = Some(config);
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "transcription manager init failed, voice transcription disabled: {e}"
+                );
+            }
+        }
+        self
+    }
+
+    /// Configure streaming mode for progressive draft updates or multi-message delivery.
+    pub fn with_streaming(
+        mut self,
+        stream_mode: crate::config::StreamMode,
+        draft_update_interval_ms: u64,
+        multi_message_delay_ms: u64,
+    ) -> Self {
+        self.stream_mode = stream_mode;
+        self.draft_update_interval_ms = draft_update_interval_ms;
+        self.multi_message_delay_ms = multi_message_delay_ms;
         self
     }
 
     fn http_client(&self) -> reqwest::Client {
-        crate::config::build_runtime_proxy_client("channel.discord")
+        crate::config::build_channel_proxy_client("channel.discord", self.proxy_url.as_deref())
     }
 
     /// Check if a Discord user ID is in the allowlist.
@@ -65,76 +114,18 @@ impl DiscordChannel {
         self.allowed_users.iter().any(|u| u == "*" || u == user_id)
     }
 
-    fn is_group_sender_trigger_enabled(&self, sender_id: &str) -> bool {
-        let sender_id = sender_id.trim();
-        if sender_id.is_empty() {
-            return false;
-        }
-        self.group_reply_allowed_sender_ids
-            .iter()
-            .any(|entry| entry == "*" || entry == sender_id)
-    }
-
     fn bot_user_id_from_token(token: &str) -> Option<String> {
         // Discord bot tokens are base64(bot_user_id).timestamp.hmac
         let part = token.split('.').next()?;
         base64_decode(part)
     }
-
-    fn resolve_local_attachment_path(&self, target: &str) -> anyhow::Result<PathBuf> {
-        let workspace = self.workspace_dir.as_ref().ok_or_else(|| {
-            anyhow::anyhow!("workspace_dir is not configured; local file attachments are disabled")
-        })?;
-        let workspace_root = workspace
-            .canonicalize()
-            .unwrap_or_else(|_| workspace.to_path_buf());
-
-        let target_path = if let Some(rel) = target.strip_prefix("/workspace/") {
-            workspace.join(rel)
-        } else if target == "/workspace" {
-            workspace.to_path_buf()
-        } else {
-            let path = Path::new(target);
-            if path.is_absolute() {
-                path.to_path_buf()
-            } else {
-                workspace.join(path)
-            }
-        };
-
-        let resolved = target_path
-            .canonicalize()
-            .with_context(|| format!("attachment path not found: {target}"))?;
-
-        if !resolved.starts_with(&workspace_root) {
-            anyhow::bail!("attachment path escapes workspace: {target}");
-        }
-
-        if !resolved.is_file() {
-            anyhow::bail!("attachment path is not a file: {}", resolved.display());
-        }
-
-        Ok(resolved)
-    }
-}
-
-fn normalize_group_reply_allowed_sender_ids(sender_ids: Vec<String>) -> Vec<String> {
-    let mut normalized = sender_ids
-        .into_iter()
-        .map(|entry| entry.trim().to_string())
-        .filter(|entry| !entry.is_empty())
-        .collect::<Vec<_>>();
-    normalized.sort();
-    normalized.dedup();
-    normalized
 }
 
 /// Process Discord message attachments and return a string to append to the
 /// agent message context.
 ///
-/// `text/*` MIME types are fetched and inlined, while `image/*` MIME types are
-/// forwarded as `[IMAGE:<url>]` markers. Other types are skipped. Fetch errors
-/// are logged as warnings.
+/// Only `text/*` MIME types are fetched and inlined. All other types are
+/// silently skipped. Fetch errors are logged as warnings.
 async fn process_attachments(
     attachments: &[serde_json::Value],
     client: &reqwest::Client,
@@ -167,8 +158,6 @@ async fn process_attachments(
                     tracing::warn!(name, error = %e, "discord attachment fetch error");
                 }
             }
-        } else if ct.starts_with("image/") {
-            parts.push(format!("[IMAGE:{url}]"));
         } else {
             tracing::debug!(
                 name,
@@ -178,6 +167,88 @@ async fn process_attachments(
         }
     }
     parts.join("\n---\n")
+}
+
+/// Audio file extensions accepted for voice transcription.
+const DISCORD_AUDIO_EXTENSIONS: &[&str] = &[
+    "flac", "mp3", "mpeg", "mpga", "mp4", "m4a", "ogg", "oga", "opus", "wav", "webm",
+];
+
+/// Check if a content type or filename indicates an audio file.
+fn is_discord_audio_attachment(content_type: &str, filename: &str) -> bool {
+    if content_type.starts_with("audio/") {
+        return true;
+    }
+    if let Some(ext) = filename.rsplit('.').next() {
+        return DISCORD_AUDIO_EXTENSIONS.contains(&ext.to_ascii_lowercase().as_str());
+    }
+    false
+}
+
+/// Download and transcribe audio attachments from a Discord message.
+///
+/// Returns transcribed text blocks for any audio attachments found.
+/// Non-audio attachments and failures are silently skipped.
+async fn transcribe_discord_audio_attachments(
+    attachments: &[serde_json::Value],
+    client: &reqwest::Client,
+    manager: &super::transcription::TranscriptionManager,
+) -> String {
+    let mut parts: Vec<String> = Vec::new();
+    for att in attachments {
+        let ct = att
+            .get("content_type")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let name = att
+            .get("filename")
+            .and_then(|v| v.as_str())
+            .unwrap_or("file");
+
+        if !is_discord_audio_attachment(ct, name) {
+            continue;
+        }
+
+        let Some(url) = att.get("url").and_then(|v| v.as_str()) else {
+            continue;
+        };
+
+        let audio_data = match client.get(url).send().await {
+            Ok(resp) if resp.status().is_success() => match resp.bytes().await {
+                Ok(bytes) => bytes.to_vec(),
+                Err(e) => {
+                    tracing::warn!(name, error = %e, "discord: failed to read audio attachment bytes");
+                    continue;
+                }
+            },
+            Ok(resp) => {
+                tracing::warn!(name, status = %resp.status(), "discord: audio attachment download failed");
+                continue;
+            }
+            Err(e) => {
+                tracing::warn!(name, error = %e, "discord: audio attachment fetch error");
+                continue;
+            }
+        };
+
+        match manager.transcribe(&audio_data, name).await {
+            Ok(text) => {
+                let trimmed = text.trim();
+                if !trimmed.is_empty() {
+                    tracing::info!(
+                        "Discord: transcribed audio attachment {} ({} chars)",
+                        name,
+                        trimmed.len()
+                    );
+                    parts.push(format!("[Voice] {trimmed}"));
+                }
+            }
+            Err(e) => {
+                tracing::warn!(name, error = %e, "discord: voice transcription failed");
+            }
+        }
+    }
+    parts.join("\n")
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -265,10 +336,10 @@ fn parse_attachment_markers(message: &str) -> (String, Vec<DiscordAttachment>) {
 
 fn classify_outgoing_attachments(
     attachments: &[DiscordAttachment],
-) -> (Vec<DiscordAttachment>, Vec<String>, Vec<String>) {
+) -> (Vec<PathBuf>, Vec<String>, Vec<String>) {
     let mut local_files = Vec::new();
     let mut remote_urls = Vec::new();
-    let unresolved_markers = Vec::new();
+    let mut unresolved_markers = Vec::new();
 
     for attachment in attachments {
         let target = attachment.target.trim();
@@ -277,7 +348,13 @@ fn classify_outgoing_attachments(
             continue;
         }
 
-        local_files.push(attachment.clone());
+        let path = Path::new(target);
+        if path.exists() && path.is_file() {
+            local_files.push(path.to_path_buf());
+            continue;
+        }
+
+        unresolved_markers.push(format!("[{}:{}]", attachment.kind.marker_name(), target));
     }
 
     (local_files, remote_urls, unresolved_markers)
@@ -323,8 +400,7 @@ async fn send_discord_message_json(
             .text()
             .await
             .unwrap_or_else(|e| format!("<failed to read response body: {e}>"));
-        let sanitized = crate::providers::sanitize_api_error(&err);
-        anyhow::bail!("Discord send message failed ({status}): {sanitized}");
+        anyhow::bail!("Discord send message failed ({status}): {err}");
     }
 
     Ok(())
@@ -372,8 +448,114 @@ async fn send_discord_message_with_files(
             .text()
             .await
             .unwrap_or_else(|e| format!("<failed to read response body: {e}>"));
-        let sanitized = crate::providers::sanitize_api_error(&err);
-        anyhow::bail!("Discord send message with files failed ({status}): {sanitized}");
+        anyhow::bail!("Discord send message with files failed ({status}): {err}");
+    }
+
+    Ok(())
+}
+
+/// Send a message and return the Discord message ID from the response.
+async fn send_discord_message_json_with_id(
+    client: &reqwest::Client,
+    bot_token: &str,
+    recipient: &str,
+    content: &str,
+) -> anyhow::Result<String> {
+    let url = format!("https://discord.com/api/v10/channels/{recipient}/messages");
+    let body = json!({ "content": content });
+
+    let resp = client
+        .post(&url)
+        .header("Authorization", format!("Bot {bot_token}"))
+        .json(&body)
+        .send()
+        .await?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let err = resp
+            .text()
+            .await
+            .unwrap_or_else(|e| format!("<failed to read response body: {e}>"));
+        anyhow::bail!("Discord send message failed ({status}): {err}");
+    }
+
+    let resp_json: serde_json::Value = resp.json().await?;
+    resp_json
+        .get("id")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+        .ok_or_else(|| anyhow::anyhow!("Discord send response missing 'id' field"))
+}
+
+/// Edit an existing Discord message via PATCH.
+///
+/// Returns `Ok(())` on success. On HTTP 429 (rate limited), logs at debug
+/// level and returns `Ok(())` since skipping a mid-stream edit is harmless.
+async fn edit_discord_message(
+    client: &reqwest::Client,
+    bot_token: &str,
+    channel_id: &str,
+    message_id: &str,
+    content: &str,
+) -> anyhow::Result<()> {
+    let url = format!("https://discord.com/api/v10/channels/{channel_id}/messages/{message_id}");
+    let body = json!({ "content": content });
+
+    let resp = client
+        .patch(&url)
+        .header("Authorization", format!("Bot {bot_token}"))
+        .json(&body)
+        .send()
+        .await?;
+
+    if resp.status().as_u16() == 429 {
+        tracing::debug!("Discord edit message rate-limited (429), skipping update");
+        return Ok(());
+    }
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let err = resp
+            .text()
+            .await
+            .unwrap_or_else(|e| format!("<failed to read response body: {e}>"));
+        anyhow::bail!("Discord edit message failed ({status}): {err}");
+    }
+
+    Ok(())
+}
+
+/// Delete a Discord message.
+///
+/// Returns `Ok(())` on success. On HTTP 429 (rate limited), logs at debug
+/// level and returns `Ok(())` since a stale message is cosmetic only.
+async fn delete_discord_message(
+    client: &reqwest::Client,
+    bot_token: &str,
+    channel_id: &str,
+    message_id: &str,
+) -> anyhow::Result<()> {
+    let url = format!("https://discord.com/api/v10/channels/{channel_id}/messages/{message_id}");
+
+    let resp = client
+        .delete(&url)
+        .header("Authorization", format!("Bot {bot_token}"))
+        .send()
+        .await?;
+
+    if resp.status().as_u16() == 429 {
+        tracing::debug!("Discord delete message rate-limited (429), skipping");
+        return Ok(());
+    }
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let err = resp
+            .text()
+            .await
+            .unwrap_or_else(|e| format!("<failed to read response body: {e}>"));
+        anyhow::bail!("Discord delete message failed ({status}): {err}");
     }
 
     Ok(())
@@ -435,7 +617,63 @@ fn split_message_for_discord(message: &str) -> Vec<String> {
     chunks
 }
 
-#[allow(clippy::cast_possible_truncation)]
+/// Split a message into multiple logical chunks at paragraph boundaries for
+/// multi-message delivery. Respects code fences — never splits inside a
+/// fenced code block. Falls back to [`split_message_for_discord`] for any
+/// segment that exceeds `max_len`.
+fn split_message_for_discord_multi(content: &str, max_len: usize) -> Vec<String> {
+    if content.is_empty() {
+        return vec![];
+    }
+
+    // Gather paragraph-level segments, respecting code fences.
+    let mut segments: Vec<String> = Vec::new();
+    let mut current = String::new();
+    let mut in_fence = false;
+
+    for line in content.lines() {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with("```") {
+            in_fence = !in_fence;
+        }
+
+        // If we hit a blank line outside a fence, that's a paragraph break.
+        if line.is_empty() && !in_fence && !current.is_empty() {
+            segments.push(current.trim_end().to_string());
+            current.clear();
+            continue;
+        }
+
+        if !current.is_empty() {
+            current.push('\n');
+        }
+        current.push_str(line);
+    }
+    if !current.is_empty() {
+        segments.push(current.trim_end().to_string());
+    }
+
+    // Now coalesce small segments and split oversized ones.
+    let mut chunks: Vec<String> = Vec::new();
+
+    for segment in segments {
+        if segment.chars().count() > max_len {
+            // This segment (possibly a large code fence) exceeds the limit.
+            // Fall back to the word-boundary splitter.
+            let sub_chunks = split_message_for_discord(&segment);
+            chunks.extend(sub_chunks);
+        } else {
+            chunks.push(segment);
+        }
+    }
+
+    if chunks.is_empty() {
+        vec![content.to_string()]
+    } else {
+        chunks
+    }
+}
+
 fn pick_uniform_index(len: usize) -> usize {
     debug_assert!(len > 0);
     let upper = len as u64;
@@ -444,6 +682,7 @@ fn pick_uniform_index(len: usize) -> usize {
     loop {
         let value = rand::random::<u64>();
         if value < reject_threshold {
+            #[allow(clippy::cast_possible_truncation)]
             return (value % upper) as usize;
         }
     }
@@ -463,10 +702,9 @@ fn encode_emoji_for_discord(emoji: &str) -> String {
         return emoji.to_string();
     }
 
-    use std::fmt::Write as _;
     let mut encoded = String::new();
     for byte in emoji.as_bytes() {
-        write!(encoded, "%{byte:02X}").ok();
+        let _ = write!(encoded, "%{byte:02X}");
     }
     encoded
 }
@@ -490,19 +728,19 @@ fn contains_bot_mention(content: &str, bot_user_id: &str) -> bool {
 
 fn normalize_incoming_content(
     content: &str,
-    require_mention: bool,
+    mention_only: bool,
     bot_user_id: &str,
 ) -> Option<String> {
     if content.is_empty() {
         return None;
     }
 
-    if require_mention && !contains_bot_mention(content, bot_user_id) {
+    if mention_only && !contains_bot_mention(content, bot_user_id) {
         return None;
     }
 
     let mut normalized = content.to_string();
-    if require_mention {
+    if mention_only {
         for tag in mention_tags(bot_user_id) {
             normalized = normalized.replace(&tag, " ");
         }
@@ -563,28 +801,8 @@ impl Channel for DiscordChannel {
     async fn send(&self, message: &SendMessage) -> anyhow::Result<()> {
         let raw_content = super::strip_tool_call_tags(&message.content);
         let (cleaned_content, parsed_attachments) = parse_attachment_markers(&raw_content);
-        let (local_attachment_targets, remote_urls, mut unresolved_markers) =
+        let (mut local_files, remote_urls, unresolved_markers) =
             classify_outgoing_attachments(&parsed_attachments);
-        let mut local_files = Vec::new();
-
-        for attachment in &local_attachment_targets {
-            let target = attachment.target.trim();
-            match self.resolve_local_attachment_path(target) {
-                Ok(path) => local_files.push(path),
-                Err(error) => {
-                    tracing::warn!(
-                        target,
-                        error = %error,
-                        "discord: local attachment rejected by workspace policy"
-                    );
-                    unresolved_markers.push(format!(
-                        "[{}:{}]",
-                        attachment.kind.marker_name(),
-                        target
-                    ));
-                }
-            }
-        }
 
         if !unresolved_markers.is_empty() {
             tracing::warn!(
@@ -604,6 +822,53 @@ impl Channel for DiscordChannel {
 
         let content =
             with_inline_attachment_urls(&cleaned_content, &remote_urls, &unresolved_markers);
+
+        // MultiMessage mode: split at paragraph boundaries and send each as a
+        // separate message with a configurable delay between them.
+        if self.stream_mode == crate::config::StreamMode::MultiMessage {
+            let chunks = split_message_for_discord_multi(&content, DISCORD_MAX_MESSAGE_LENGTH);
+            let client = self.http_client();
+
+            for (i, chunk) in chunks.iter().enumerate() {
+                if i == 0 && !local_files.is_empty() {
+                    send_discord_message_with_files(
+                        &client,
+                        &self.bot_token,
+                        &message.recipient,
+                        chunk,
+                        &local_files,
+                    )
+                    .await?;
+                } else {
+                    send_discord_message_json(&client, &self.bot_token, &message.recipient, chunk)
+                        .await?;
+                }
+
+                if i < chunks.len() - 1 {
+                    // Check cancellation between chunks so interruption stops delivery.
+                    if message
+                        .cancellation_token
+                        .as_ref()
+                        .is_some_and(|t| t.is_cancelled())
+                    {
+                        tracing::debug!(
+                            "MultiMessage delivery interrupted after chunk {}/{}",
+                            i + 1,
+                            chunks.len()
+                        );
+                        break;
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(
+                        self.multi_message_delay_ms,
+                    ))
+                    .await;
+                }
+            }
+
+            return Ok(());
+        }
+
+        // Default / Partial fallback: single chunked message delivery.
         let chunks = split_message_for_discord(&content);
         let client = self.http_client();
 
@@ -652,7 +917,12 @@ impl Channel for DiscordChannel {
         let ws_url = format!("{gw_url}/?v=10&encoding=json");
         tracing::info!("Discord: connecting to gateway...");
 
-        let (ws_stream, _) = tokio_tungstenite::connect_async(&ws_url).await?;
+        let (ws_stream, _) = crate::config::ws_connect_with_proxy(
+            &ws_url,
+            "channel.discord",
+            self.proxy_url.as_deref(),
+        )
+        .await?;
         let (mut write, mut read) = ws_stream.split();
 
         // Read Hello (opcode 10)
@@ -715,7 +985,18 @@ impl Channel for DiscordChannel {
                 msg = read.next() => {
                     let msg = match msg {
                         Some(Ok(Message::Text(t))) => t,
+                        Some(Ok(Message::Ping(payload))) => {
+                            if write.send(Message::Pong(payload)).await.is_err() {
+                                tracing::warn!("Discord: pong send failed, reconnecting");
+                                break;
+                            }
+                            continue;
+                        }
                         Some(Ok(Message::Close(_))) | None => break,
+                        Some(Err(e)) => {
+                            tracing::warn!("Discord: websocket read error: {e}, reconnecting");
+                            break;
+                        }
                         _ => continue,
                     };
 
@@ -793,13 +1074,13 @@ impl Channel for DiscordChannel {
                     }
 
                     let content = d.get("content").and_then(|c| c.as_str()).unwrap_or("");
-                    let is_group_message = d.get("guild_id").is_some();
-                    let allow_sender_without_mention =
-                        is_group_message && self.is_group_sender_trigger_enabled(author_id);
-                    let require_mention =
-                        self.mention_only && is_group_message && !allow_sender_without_mention;
+                    // DMs carry no guild_id in the Discord gateway payload. They are
+                    // inherently private and implicitly addressed to the bot, so bypass
+                    // the mention gate — requiring a @mention in a DM is never correct.
+                    let is_dm = d.get("guild_id").is_none();
+                    let effective_mention_only = self.mention_only && !is_dm;
                     let Some(clean_content) =
-                        normalize_incoming_content(content, require_mention, &bot_user_id)
+                        normalize_incoming_content(content, effective_mention_only, &bot_user_id)
                     else {
                         continue;
                     };
@@ -810,7 +1091,28 @@ impl Channel for DiscordChannel {
                             .and_then(|a| a.as_array())
                             .cloned()
                             .unwrap_or_default();
-                        process_attachments(&atts, &self.http_client()).await
+                        let client = self.http_client();
+                        let mut text_parts = process_attachments(&atts, &client).await;
+
+                        // Transcribe audio attachments when transcription is configured
+                        if let Some(ref transcription_manager) = self.transcription_manager {
+                            let voice_text = transcribe_discord_audio_attachments(
+                                &atts,
+                                &client,
+                                transcription_manager,
+                            )
+                            .await;
+                            if !voice_text.is_empty() {
+                                if text_parts.is_empty() {
+                                    text_parts = voice_text;
+                                } else {
+                                    text_parts = format!("{text_parts}
+            {voice_text}");
+                                }
+                            }
+                        }
+
+                        text_parts
                     };
                     let final_content = if attachment_text.is_empty() {
                         clean_content
@@ -871,6 +1173,8 @@ impl Channel for DiscordChannel {
                             .unwrap_or_default()
                             .as_secs(),
                         thread_ts: None,
+                        interruption_scope_id: None,
+                    attachments: vec![],
                     };
 
                     if tx.send(channel_msg).await.is_err() {
@@ -926,6 +1230,312 @@ impl Channel for DiscordChannel {
         Ok(())
     }
 
+    fn supports_draft_updates(&self) -> bool {
+        self.stream_mode != crate::config::StreamMode::Off
+    }
+
+    fn supports_multi_message_streaming(&self) -> bool {
+        self.stream_mode == crate::config::StreamMode::MultiMessage
+    }
+
+    fn multi_message_delay_ms(&self) -> u64 {
+        self.multi_message_delay_ms
+    }
+
+    async fn send_draft(&self, message: &SendMessage) -> anyhow::Result<Option<String>> {
+        use crate::config::StreamMode;
+        match self.stream_mode {
+            StreamMode::Off => Ok(None),
+            StreamMode::Partial => {
+                let initial_text = if message.content.is_empty() {
+                    "...".to_string()
+                } else {
+                    message.content.clone()
+                };
+
+                let client = self.http_client();
+                let msg_id = send_discord_message_json_with_id(
+                    &client,
+                    &self.bot_token,
+                    &message.recipient,
+                    &initial_text,
+                )
+                .await?;
+
+                self.last_draft_edit
+                    .lock()
+                    .insert(message.recipient.clone(), std::time::Instant::now());
+
+                Ok(Some(msg_id))
+            }
+            StreamMode::MultiMessage => {
+                // No initial draft — paragraphs are sent as new messages.
+                // Store thread context for paragraph delivery.
+                self.multi_message_sent_len.lock().clear();
+                self.multi_message_thread_ts
+                    .lock()
+                    .insert(message.recipient.clone(), message.thread_ts.clone());
+                Ok(Some("multi_message_synthetic".to_string()))
+            }
+        }
+    }
+
+    async fn update_draft(
+        &self,
+        recipient: &str,
+        message_id: &str,
+        text: &str,
+    ) -> anyhow::Result<()> {
+        use crate::config::StreamMode;
+        match self.stream_mode {
+            StreamMode::Off => Ok(()),
+            StreamMode::Partial => {
+                // Rate-limit edits per channel.
+                {
+                    let last_edits = self.last_draft_edit.lock();
+                    if let Some(last_time) = last_edits.get(recipient) {
+                        let elapsed_ms =
+                            u64::try_from(last_time.elapsed().as_millis()).unwrap_or(u64::MAX);
+                        if elapsed_ms < self.draft_update_interval_ms {
+                            return Ok(());
+                        }
+                    }
+                }
+
+                // UTF-8 safe truncation to Discord limit.
+                let display_text = if text.len() > DISCORD_MAX_MESSAGE_LENGTH {
+                    let mut end = 0;
+                    for (idx, ch) in text.char_indices() {
+                        let next = idx + ch.len_utf8();
+                        if next > DISCORD_MAX_MESSAGE_LENGTH {
+                            break;
+                        }
+                        end = next;
+                    }
+                    &text[..end]
+                } else {
+                    text
+                };
+
+                let client = self.http_client();
+                match edit_discord_message(
+                    &client,
+                    &self.bot_token,
+                    recipient,
+                    message_id,
+                    display_text,
+                )
+                .await
+                {
+                    Ok(()) => {
+                        self.last_draft_edit
+                            .lock()
+                            .insert(recipient.to_string(), std::time::Instant::now());
+                    }
+                    Err(e) => {
+                        tracing::debug!("Discord draft update failed: {e}");
+                    }
+                }
+
+                Ok(())
+            }
+            StreamMode::MultiMessage => {
+                // Track accumulated text and send new paragraphs at \n\n boundaries.
+                // Extract paragraph (if any) under the lock, then drop it before async work.
+                let (paragraph, thread_ts) = {
+                    let thread_ts = self
+                        .multi_message_thread_ts
+                        .lock()
+                        .get(recipient)
+                        .cloned()
+                        .flatten();
+                    let mut sent_map = self.multi_message_sent_len.lock();
+                    let sent_so_far = sent_map.get(recipient).copied().unwrap_or(0);
+
+                    // DraftEvent::Clear resets accumulated text — reset our counter.
+                    if text.len() < sent_so_far {
+                        sent_map.insert(recipient.to_string(), 0);
+                        return Ok(());
+                    }
+                    if text.len() == sent_so_far {
+                        return Ok(());
+                    }
+
+                    let new_text = &text[sent_so_far..];
+                    let mut scan_pos = 0;
+                    let mut in_fence = false;
+                    let bytes = new_text.as_bytes();
+                    let mut found_paragraph = None;
+
+                    while scan_pos < bytes.len() {
+                        let ch = bytes[scan_pos];
+
+                        if ch == b'`'
+                            && scan_pos + 2 < bytes.len()
+                            && bytes[scan_pos + 1] == b'`'
+                            && bytes[scan_pos + 2] == b'`'
+                            && (scan_pos == 0 || bytes[scan_pos - 1] == b'\n')
+                        {
+                            in_fence = !in_fence;
+                        }
+
+                        if !in_fence
+                            && ch == b'\n'
+                            && scan_pos + 1 < bytes.len()
+                            && bytes[scan_pos + 1] == b'\n'
+                        {
+                            let paragraph = new_text[..scan_pos].trim().to_string();
+                            let consumed = scan_pos + 2;
+                            *sent_map.entry(recipient.to_string()).or_insert(0) += consumed;
+                            if !paragraph.is_empty() {
+                                found_paragraph = Some(paragraph);
+                            }
+                            break;
+                        }
+
+                        scan_pos += 1;
+                    }
+                    // Lock is dropped here at end of block.
+                    (found_paragraph, thread_ts)
+                };
+
+                if let Some(paragraph) = paragraph {
+                    let msg = SendMessage::new(&paragraph, recipient).in_thread(thread_ts.clone());
+                    if let Err(e) = self.send(&msg).await {
+                        tracing::debug!("Discord multi-message paragraph send failed: {e}");
+                    }
+                    if self.multi_message_delay_ms > 0 {
+                        tokio::time::sleep(std::time::Duration::from_millis(
+                            self.multi_message_delay_ms,
+                        ))
+                        .await;
+                    }
+                    // Recurse to handle remaining text.
+                    return self.update_draft(recipient, message_id, text).await;
+                }
+
+                Ok(())
+            }
+        }
+    }
+
+    async fn finalize_draft(
+        &self,
+        recipient: &str,
+        message_id: &str,
+        text: &str,
+    ) -> anyhow::Result<()> {
+        if self.stream_mode == crate::config::StreamMode::MultiMessage {
+            // Flush remaining buffered text.
+            let thread_ts = self
+                .multi_message_thread_ts
+                .lock()
+                .remove(recipient)
+                .flatten();
+            let sent_so_far = self
+                .multi_message_sent_len
+                .lock()
+                .remove(recipient)
+                .unwrap_or(0);
+            if text.len() > sent_so_far {
+                let remaining = text[sent_so_far..].trim().to_string();
+                if !remaining.is_empty() {
+                    let msg = SendMessage::new(&remaining, recipient).in_thread(thread_ts);
+                    if let Err(e) = self.send(&msg).await {
+                        tracing::debug!("Discord multi-message final flush failed: {e}");
+                    }
+                }
+            }
+            return Ok(());
+        }
+
+        // Belt-and-suspenders: kill any typing handles for this channel.
+        let _ = self.stop_typing(recipient).await;
+        self.last_draft_edit.lock().remove(recipient);
+
+        let text = &super::strip_tool_call_tags(text);
+        let (cleaned_content, parsed_attachments) = parse_attachment_markers(text);
+        let (mut local_files, remote_urls, unresolved_markers) =
+            classify_outgoing_attachments(&parsed_attachments);
+        let content =
+            with_inline_attachment_urls(&cleaned_content, &remote_urls, &unresolved_markers);
+
+        let client = self.http_client();
+
+        // Path 1: file attachments — delete draft and POST fresh message with files.
+        if !local_files.is_empty() {
+            let _ = delete_discord_message(&client, &self.bot_token, recipient, message_id).await;
+
+            if local_files.len() > 10 {
+                local_files.truncate(10);
+            }
+            let chunks = split_message_for_discord(&content);
+            for (i, chunk) in chunks.iter().enumerate() {
+                if i == 0 {
+                    send_discord_message_with_files(
+                        &client,
+                        &self.bot_token,
+                        recipient,
+                        chunk,
+                        &local_files,
+                    )
+                    .await?;
+                } else {
+                    send_discord_message_json(&client, &self.bot_token, recipient, chunk).await?;
+                }
+                if i < chunks.len() - 1 {
+                    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                }
+            }
+            return Ok(());
+        }
+
+        // Path 2: text exceeds limit — delete draft and POST as chunked messages.
+        if content.chars().count() > DISCORD_MAX_MESSAGE_LENGTH {
+            let _ = delete_discord_message(&client, &self.bot_token, recipient, message_id).await;
+
+            let chunks = split_message_for_discord(&content);
+            for (i, chunk) in chunks.iter().enumerate() {
+                send_discord_message_json(&client, &self.bot_token, recipient, chunk).await?;
+                if i < chunks.len() - 1 {
+                    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                }
+            }
+            return Ok(());
+        }
+
+        // Path 3: simple case — edit in-place; fall back to delete + POST on failure.
+        if let Err(e) =
+            edit_discord_message(&client, &self.bot_token, recipient, message_id, &content).await
+        {
+            tracing::warn!("Discord finalize_draft edit failed: {e}; falling back to delete+send");
+            let _ = delete_discord_message(&client, &self.bot_token, recipient, message_id).await;
+            send_discord_message_json(&client, &self.bot_token, recipient, &content).await?;
+        }
+
+        Ok(())
+    }
+
+    async fn cancel_draft(&self, recipient: &str, message_id: &str) -> anyhow::Result<()> {
+        if self.stream_mode == crate::config::StreamMode::MultiMessage {
+            self.multi_message_sent_len.lock().remove(recipient);
+            self.multi_message_thread_ts.lock().remove(recipient);
+            return Ok(());
+        }
+
+        let _ = self.stop_typing(recipient).await;
+        self.last_draft_edit.lock().remove(recipient);
+
+        let client = self.http_client();
+        if let Err(e) =
+            delete_discord_message(&client, &self.bot_token, recipient, message_id).await
+        {
+            tracing::debug!("Discord cancel_draft delete failed: {e}");
+        }
+
+        Ok(())
+    }
+
     async fn add_reaction(
         &self,
         channel_id: &str,
@@ -948,8 +1558,7 @@ impl Channel for DiscordChannel {
                 .text()
                 .await
                 .unwrap_or_else(|e| format!("<failed to read response body: {e}>"));
-            let sanitized = crate::providers::sanitize_api_error(&err);
-            anyhow::bail!("Discord add reaction failed ({status}): {sanitized}");
+            anyhow::bail!("Discord add reaction failed ({status}): {err}");
         }
 
         Ok(())
@@ -976,8 +1585,7 @@ impl Channel for DiscordChannel {
                 .text()
                 .await
                 .unwrap_or_else(|e| format!("<failed to read response body: {e}>"));
-            let sanitized = crate::providers::sanitize_api_error(&err);
-            anyhow::bail!("Discord remove reaction failed ({status}): {sanitized}");
+            anyhow::bail!("Discord remove reaction failed ({status}): {err}");
         }
 
         Ok(())
@@ -1116,26 +1724,39 @@ mod tests {
         assert!(cleaned.is_none());
     }
 
+    // mention_only DM-bypass tests
+
     #[test]
-    fn normalize_group_reply_allowed_sender_ids_trims_and_deduplicates() {
-        let normalized = normalize_group_reply_allowed_sender_ids(vec![
-            " 111 ".into(),
-            "111".into(),
-            String::new(),
-            "  ".into(),
-            "222".into(),
-        ]);
-        assert_eq!(normalized, vec!["111".to_string(), "222".to_string()]);
+    fn mention_only_dm_bypasses_mention_gate() {
+        // DMs (no guild_id) must pass through even when mention_only is true
+        // and the message contains no @mention. Mirrors the listen call-site logic.
+        let mention_only = true;
+        let is_dm = true;
+        let effective = mention_only && !is_dm;
+        let cleaned = normalize_incoming_content("hello without mention", effective, "12345");
+        assert_eq!(cleaned.as_deref(), Some("hello without mention"));
     }
 
     #[test]
-    fn group_reply_sender_override_matches_exact_and_wildcard() {
-        let ch = DiscordChannel::new("token".into(), None, vec!["*".into()], false, true)
-            .with_group_reply_allowed_senders(vec!["111".into(), "*".into()]);
+    fn mention_only_guild_message_without_mention_is_rejected() {
+        // Guild messages (has guild_id, so is_dm = false) must still be rejected
+        // when mention_only is true and the message contains no @mention.
+        let mention_only = true;
+        let is_dm = false;
+        let effective = mention_only && !is_dm;
+        let cleaned = normalize_incoming_content("hello without mention", effective, "12345");
+        assert!(cleaned.is_none());
+    }
 
-        assert!(ch.is_group_sender_trigger_enabled("111"));
-        assert!(ch.is_group_sender_trigger_enabled("anyone"));
-        assert!(!ch.is_group_sender_trigger_enabled(""));
+    #[test]
+    fn mention_only_guild_message_with_mention_passes_and_strips() {
+        // Guild messages that do carry a @mention pass through and have the
+        // mention tag stripped, consistent with pre-existing behaviour.
+        let mention_only = true;
+        let is_dm = false;
+        let effective = mention_only && !is_dm;
+        let cleaned = normalize_incoming_content("<@12345> run status", effective, "12345");
+        assert_eq!(cleaned.as_deref(), Some("run status"));
     }
 
     // Message splitting tests
@@ -1176,9 +1797,11 @@ mod tests {
         let chunks = split_message_for_discord(&msg);
         // Should split into 5 chunks of <= 2000 chars
         assert_eq!(chunks.len(), 5);
-        assert!(chunks
-            .iter()
-            .all(|chunk| chunk.chars().count() <= DISCORD_MAX_MESSAGE_LENGTH));
+        assert!(
+            chunks
+                .iter()
+                .all(|chunk| chunk.chars().count() <= DISCORD_MAX_MESSAGE_LENGTH)
+        );
         // Verify total content is preserved
         let reconstructed = chunks.concat();
         assert_eq!(reconstructed, msg);
@@ -1273,9 +1896,11 @@ mod tests {
     fn split_chunks_always_within_discord_limit() {
         let msg = "x".repeat(12_345);
         let chunks = split_message_for_discord(&msg);
-        assert!(chunks
-            .iter()
-            .all(|chunk| chunk.chars().count() <= DISCORD_MAX_MESSAGE_LENGTH));
+        assert!(
+            chunks
+                .iter()
+                .all(|chunk| chunk.chars().count() <= DISCORD_MAX_MESSAGE_LENGTH)
+        );
     }
 
     #[test]
@@ -1490,10 +2115,12 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::format_collect)]
     fn split_message_many_short_lines() {
         // Many short lines should be batched into chunks under the limit
-        let msg: String = (0..500).map(|i| format!("line {i}\n")).collect();
+        let msg: String = (0..500).fold(String::new(), |mut acc, i| {
+            let _ = writeln!(acc, "line {i}");
+            acc
+        });
         let parts = split_message_for_discord(&msg);
         for part in &parts {
             assert!(
@@ -1561,43 +2188,6 @@ mod tests {
         assert!(result.is_empty());
     }
 
-    #[tokio::test]
-    async fn process_attachments_emits_single_image_marker() {
-        let client = reqwest::Client::new();
-        let attachments = vec![serde_json::json!({
-            "url": "https://cdn.discordapp.com/attachments/123/456/photo.png",
-            "filename": "photo.png",
-            "content_type": "image/png"
-        })];
-        let result = process_attachments(&attachments, &client).await;
-        assert_eq!(
-            result,
-            "[IMAGE:https://cdn.discordapp.com/attachments/123/456/photo.png]"
-        );
-    }
-
-    #[tokio::test]
-    async fn process_attachments_emits_multiple_image_markers() {
-        let client = reqwest::Client::new();
-        let attachments = vec![
-            serde_json::json!({
-                "url": "https://cdn.discordapp.com/attachments/123/456/one.jpg",
-                "filename": "one.jpg",
-                "content_type": "image/jpeg"
-            }),
-            serde_json::json!({
-                "url": "https://cdn.discordapp.com/attachments/123/456/two.webp",
-                "filename": "two.webp",
-                "content_type": "image/webp"
-            }),
-        ];
-        let result = process_attachments(&attachments, &client).await;
-        assert_eq!(
-            result,
-            "[IMAGE:https://cdn.discordapp.com/attachments/123/456/one.jpg]\n---\n[IMAGE:https://cdn.discordapp.com/attachments/123/456/two.webp]"
-        );
-    }
-
     #[test]
     fn parse_attachment_markers_extracts_supported_markers() {
         let input = "Report\n[IMAGE:https://example.com/a.png]\n[DOCUMENT:/tmp/a.pdf]";
@@ -1642,11 +2232,13 @@ mod tests {
         ];
 
         let (locals, remotes, unresolved) = classify_outgoing_attachments(&attachments);
-        assert_eq!(locals.len(), 2);
-        assert_eq!(locals[0].target, file_path.to_string_lossy());
-        assert_eq!(locals[1].target, "/tmp/does-not-exist.mp4");
+        assert_eq!(locals.len(), 1);
+        assert_eq!(locals[0], file_path);
         assert_eq!(remotes, vec!["https://example.com/remote.png".to_string()]);
-        assert!(unresolved.is_empty());
+        assert_eq!(
+            unresolved,
+            vec!["[VIDEO:/tmp/does-not-exist.mp4]".to_string()]
+        );
     }
 
     #[test]
@@ -1662,36 +2254,145 @@ mod tests {
         );
     }
 
+    // ── Streaming mode tests ──────────────────────────────────────────
+
     #[test]
-    fn with_workspace_dir_sets_field() {
-        let channel = DiscordChannel::new("fake".into(), None, vec![], false, false)
-            .with_workspace_dir(PathBuf::from("/tmp/discord-workspace"));
+    fn supports_draft_updates_respects_stream_mode() {
+        use crate::config::StreamMode;
+
+        let off = DiscordChannel::new("t".into(), None, vec![], false, false);
+        assert!(!off.supports_draft_updates());
+
+        let partial = DiscordChannel::new("t".into(), None, vec![], false, false).with_streaming(
+            StreamMode::Partial,
+            750,
+            800,
+        );
+        assert!(partial.supports_draft_updates());
+        assert_eq!(partial.draft_update_interval_ms, 750);
+
+        let multi = DiscordChannel::new("t".into(), None, vec![], false, false).with_streaming(
+            StreamMode::MultiMessage,
+            1000,
+            600,
+        );
+        assert!(multi.supports_draft_updates());
+        assert_eq!(multi.multi_message_delay_ms, 600);
+    }
+
+    #[tokio::test]
+    async fn send_draft_returns_none_when_not_partial() {
+        use crate::channels::traits::SendMessage;
+        use crate::config::StreamMode;
+
+        let off = DiscordChannel::new("t".into(), None, vec![], false, false);
+        let msg = SendMessage::new("hello", "123");
+        assert!(off.send_draft(&msg).await.unwrap().is_none());
+
+        let multi = DiscordChannel::new("t".into(), None, vec![], false, false).with_streaming(
+            StreamMode::MultiMessage,
+            1000,
+            800,
+        );
+        // MultiMessage returns a synthetic ID so the draft_updater task runs.
         assert_eq!(
-            channel.workspace_dir.as_deref(),
-            Some(Path::new("/tmp/discord-workspace"))
+            multi.send_draft(&msg).await.unwrap().as_deref(),
+            Some("multi_message_synthetic")
         );
     }
 
+    #[tokio::test]
+    async fn update_draft_rate_limit_short_circuits() {
+        use crate::config::StreamMode;
+
+        let ch = DiscordChannel::new("t".into(), None, vec![], false, false).with_streaming(
+            StreamMode::Partial,
+            60_000,
+            800,
+        );
+
+        // Seed a recent edit time.
+        ch.last_draft_edit
+            .lock()
+            .insert("chan".to_string(), std::time::Instant::now());
+
+        // Should return Ok immediately (rate-limited) without making a network call.
+        let result = ch.update_draft("chan", "fake_msg_id", "new text").await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn cancel_draft_cleans_up_tracking() {
+        use crate::config::StreamMode;
+
+        let ch = DiscordChannel::new("t".into(), None, vec![], false, false).with_streaming(
+            StreamMode::Partial,
+            1000,
+            800,
+        );
+
+        ch.last_draft_edit
+            .lock()
+            .insert("chan".to_string(), std::time::Instant::now());
+
+        // cancel_draft will try to delete a message (will fail with network error)
+        // but should still clean up the tracking entry.
+        let _ = ch.cancel_draft("chan", "fake_msg_id").await;
+        assert!(!ch.last_draft_edit.lock().contains_key("chan"));
+    }
+
+    // ── MultiMessage splitter tests ───────────────────────────────────
+
     #[test]
-    fn resolve_local_attachment_path_blocks_workspace_escape() {
-        let temp = tempfile::tempdir().expect("tempdir");
-        let workspace = temp.path().join("workspace");
-        std::fs::create_dir_all(&workspace).expect("workspace should exist");
+    fn split_message_for_discord_multi_splits_at_paragraphs() {
+        let content = "First paragraph.\n\nSecond paragraph.\n\nThird paragraph.";
+        let chunks = split_message_for_discord_multi(content, 2000);
+        assert_eq!(chunks.len(), 3);
+        assert_eq!(chunks[0], "First paragraph.");
+        assert_eq!(chunks[1], "Second paragraph.");
+        assert_eq!(chunks[2], "Third paragraph.");
+    }
 
-        let outside = temp.path().join("outside.txt");
-        std::fs::write(&outside, b"secret").expect("fixture should be written");
+    #[test]
+    fn split_message_for_discord_multi_single_paragraph() {
+        let content = "Just one paragraph with no breaks.";
+        let chunks = split_message_for_discord_multi(content, 2000);
+        assert_eq!(chunks.len(), 1);
+        assert_eq!(chunks[0], content);
+    }
 
-        let channel = DiscordChannel::new("fake".into(), None, vec![], false, false)
-            .with_workspace_dir(workspace.clone());
+    #[test]
+    fn split_message_for_discord_multi_respects_max_len() {
+        // Create a single paragraph that exceeds max_len.
+        let long_para = "a ".repeat(1100); // ~2200 chars
+        let chunks = split_message_for_discord_multi(&long_para, 2000);
+        assert!(chunks.len() > 1, "should split oversized paragraph");
+        for chunk in &chunks {
+            assert!(
+                chunk.chars().count() <= 2000,
+                "chunk exceeds max: {}",
+                chunk.chars().count()
+            );
+        }
+    }
 
-        let allowed_path = workspace.join("ok.txt");
-        std::fs::write(&allowed_path, b"ok").expect("workspace fixture should be written");
-        let allowed = channel
-            .resolve_local_attachment_path("ok.txt")
-            .expect("workspace file should be allowed");
-        assert!(allowed.starts_with(workspace.canonicalize().unwrap_or(workspace)));
+    #[test]
+    fn split_message_for_discord_multi_preserves_code_fences() {
+        let content =
+            "Before.\n\n```rust\nfn main() {\n\n    println!(\"hello\");\n}\n```\n\nAfter.";
+        let chunks = split_message_for_discord_multi(content, 2000);
+        // The code fence contains \n\n but should not be split there.
+        assert_eq!(chunks.len(), 3);
+        assert_eq!(chunks[0], "Before.");
+        assert!(chunks[1].contains("```rust"));
+        assert!(chunks[1].contains("println!"));
+        assert!(chunks[1].contains("```"));
+        assert_eq!(chunks[2], "After.");
+    }
 
-        let escaped = channel.resolve_local_attachment_path(outside.to_string_lossy().as_ref());
-        assert!(escaped.is_err(), "path outside workspace must be rejected");
+    #[test]
+    fn split_message_for_discord_multi_empty_input() {
+        let chunks = split_message_for_discord_multi("", 2000);
+        assert!(chunks.is_empty());
     }
 }

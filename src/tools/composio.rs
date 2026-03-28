@@ -7,8 +7,8 @@
 // The Composio API key is stored in the encrypted secret store.
 
 use super::traits::{Tool, ToolResult};
-use crate::security::policy::ToolOperation;
 use crate::security::SecurityPolicy;
+use crate::security::policy::ToolOperation;
 use anyhow::Context;
 use async_trait::async_trait;
 use parking_lot::RwLock;
@@ -788,14 +788,7 @@ impl Tool for ComposioTool {
                 let acct_ref = args.get("connected_account_id").and_then(|v| v.as_str());
 
                 match self
-                    .execute_action(
-                        action_name,
-                        app,
-                        params,
-                        text,
-                        Some(entity_id),
-                        acct_ref,
-                    )
+                    .execute_action(action_name, app, params, text, Some(entity_id), acct_ref)
                     .await
                 {
                     Ok(result) => {
@@ -819,9 +812,7 @@ impl Tool for ComposioTool {
                         Ok(ToolResult {
                             success: false,
                             output: String::new(),
-                            error: Some(format!(
-                                "Action execution failed: {e}{schema_hint}"
-                            )),
+                            error: Some(format!("Action execution failed: {e}{schema_hint}")),
                         })
                     }
                 }
@@ -853,15 +844,18 @@ impl Tool for ComposioTool {
                     Ok(link) => {
                         let target =
                             app.unwrap_or(auth_config_id.unwrap_or("provided auth config"));
-                        let mut output = format!(
-                            "Open this URL to connect {target}:\n{}",
-                            link.redirect_url
-                        );
+                        let mut output =
+                            format!("Open this URL to connect {target}:\n{}", link.redirect_url);
                         if let Some(connected_account_id) = link.connected_account_id.as_deref() {
                             if let Some(app_name) = app {
-                                self.cache_connected_account(app_name, entity_id, connected_account_id);
+                                self.cache_connected_account(
+                                    app_name,
+                                    entity_id,
+                                    connected_account_id,
+                                );
                             }
-                            let _ = write!(output, "\nConnected account ID: {connected_account_id}");
+                            let _ =
+                                write!(output, "\nConnected account ID: {connected_account_id}");
                         }
                         Ok(ToolResult {
                             success: true,
@@ -1162,6 +1156,14 @@ fn format_input_params_hint(schema: Option<&serde_json::Value>) -> String {
     format!(" [params: {}]", keys.join(", "))
 }
 
+fn floor_char_boundary_compat(text: &str, index: usize) -> usize {
+    let mut end = index.min(text.len());
+    while end > 0 && !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    end
+}
+
 /// Build a human-readable schema hint from a full tool schema response.
 ///
 /// Used in execute error messages so the LLM can see the expected parameter
@@ -1197,7 +1199,7 @@ fn format_schema_hint(schema: &serde_json::Value) -> Option<String> {
             // Truncate long descriptions to keep the hint concise.
             // Use char boundary to avoid panic on multi-byte UTF-8.
             let short = if desc.len() > 80 {
-                let end = crate::util::floor_utf8_char_boundary(desc, 77);
+                let end = floor_char_boundary_compat(desc, 77);
                 format!("{}...", &desc[..end])
             } else {
                 desc.to_string()
@@ -1339,12 +1341,16 @@ mod tests {
     #[test]
     fn composio_tool_has_description() {
         let _tool = ComposioTool::new("test-key", None, test_security());
-        assert!(!ComposioTool::new("test-key", None, test_security())
-            .description()
-            .is_empty());
-        assert!(ComposioTool::new("test-key", None, test_security())
-            .description()
-            .contains("1000+"));
+        assert!(
+            !ComposioTool::new("test-key", None, test_security())
+                .description()
+                .is_empty()
+        );
+        assert!(
+            ComposioTool::new("test-key", None, test_security())
+                .description()
+                .contains("1000+")
+        );
     }
 
     #[test]
@@ -1423,11 +1429,13 @@ mod tests {
             .await
             .unwrap();
         assert!(!result.success);
-        assert!(result
-            .error
-            .as_deref()
-            .unwrap_or("")
-            .contains("read-only mode"));
+        assert!(
+            result
+                .error
+                .as_deref()
+                .unwrap_or("")
+                .contains("read-only mode")
+        );
     }
 
     #[tokio::test]
@@ -1445,11 +1453,13 @@ mod tests {
             .await
             .unwrap();
         assert!(!result.success);
-        assert!(result
-            .error
-            .as_deref()
-            .unwrap_or("")
-            .contains("Rate limit exceeded"));
+        assert!(
+            result
+                .error
+                .as_deref()
+                .unwrap_or("")
+                .contains("Rate limit exceeded")
+        );
     }
 
     // ── API response parsing ──────────────────────────────────
@@ -1543,6 +1553,14 @@ mod tests {
             Some("github-list-repos")
         );
         assert!(hyphen.contains(&"github_list_repos".to_string()));
+    }
+
+    #[test]
+    fn floor_char_boundary_compat_handles_multibyte_offsets() {
+        let text = "abc😀def";
+        // Byte offset 5 is inside the 4-byte emoji, so boundary should floor to 3.
+        assert_eq!(floor_char_boundary_compat(text, 5), 3);
+        assert_eq!(floor_char_boundary_compat(text, usize::MAX), text.len());
     }
 
     #[test]

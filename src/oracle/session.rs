@@ -59,7 +59,9 @@ impl OracleSessionStore {
                 Ok(messages)
             }
             Err(ref e) if e.kind() == oracle::ErrorKind::NoDataFound => Ok(None),
-            Err(e) => Err(anyhow::anyhow!("Failed to load session '{session_key}': {e}")),
+            Err(e) => Err(anyhow::anyhow!(
+                "Failed to load session '{session_key}': {e}"
+            )),
         }
     }
 

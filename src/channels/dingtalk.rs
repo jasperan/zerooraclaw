@@ -18,6 +18,8 @@ pub struct DingTalkChannel {
     /// Per-chat session webhooks for sending replies (chatID -> webhook URL).
     /// DingTalk provides a unique webhook URL with each incoming message.
     session_webhooks: Arc<RwLock<HashMap<String, String>>>,
+    /// Per-channel proxy URL override.
+    proxy_url: Option<String>,
 }
 
 /// Response from DingTalk gateway connection registration.
@@ -34,11 +36,18 @@ impl DingTalkChannel {
             client_secret,
             allowed_users,
             session_webhooks: Arc::new(RwLock::new(HashMap::new())),
+            proxy_url: None,
         }
     }
 
+    /// Set a per-channel proxy URL that overrides the global proxy config.
+    pub fn with_proxy_url(mut self, proxy_url: Option<String>) -> Self {
+        self.proxy_url = proxy_url;
+        self
+    }
+
     fn http_client(&self) -> reqwest::Client {
-        crate::config::build_runtime_proxy_client("channel.dingtalk")
+        crate::config::build_channel_proxy_client("channel.dingtalk", self.proxy_url.as_deref())
     }
 
     fn is_user_allowed(&self, user_id: &str) -> bool {
@@ -97,8 +106,7 @@ impl DingTalkChannel {
         if !resp.status().is_success() {
             let status = resp.status();
             let err = resp.text().await.unwrap_or_default();
-            let sanitized = crate::providers::sanitize_api_error(&err);
-            anyhow::bail!("DingTalk gateway registration failed ({status}): {sanitized}");
+            anyhow::bail!("DingTalk gateway registration failed ({status}): {err}");
         }
 
         let gw: GatewayResponse = resp.json().await?;
@@ -141,8 +149,7 @@ impl Channel for DingTalkChannel {
         if !resp.status().is_success() {
             let status = resp.status();
             let err = resp.text().await.unwrap_or_default();
-            let sanitized = crate::providers::sanitize_api_error(&err);
-            anyhow::bail!("DingTalk webhook reply failed ({status}): {sanitized}");
+            anyhow::bail!("DingTalk webhook reply failed ({status}): {err}");
         }
 
         Ok(())
@@ -155,7 +162,12 @@ impl Channel for DingTalkChannel {
         let ws_url = format!("{}?ticket={}", gw.endpoint, gw.ticket);
 
         tracing::info!("DingTalk: connecting to stream WebSocket...");
-        let (ws_stream, _) = tokio_tungstenite::connect_async(&ws_url).await?;
+        let (ws_stream, _) = crate::config::ws_connect_with_proxy(
+            &ws_url,
+            "channel.dingtalk",
+            self.proxy_url.as_deref(),
+        )
+        .await?;
         let (mut write, mut read) = ws_stream.split();
 
         tracing::info!("DingTalk: connected and listening for messages...");
@@ -165,8 +177,7 @@ impl Channel for DingTalkChannel {
                 Ok(Message::Text(t)) => t,
                 Ok(Message::Close(_)) => break,
                 Err(e) => {
-                    let sanitized = crate::providers::sanitize_api_error(&e.to_string());
-                    tracing::warn!("DingTalk WebSocket error: {sanitized}");
+                    tracing::warn!("DingTalk WebSocket error: {e}");
                     break;
                 }
                 _ => continue,
@@ -278,6 +289,8 @@ impl Channel for DingTalkChannel {
                             .unwrap_or_default()
                             .as_secs(),
                         thread_ts: None,
+                        interruption_scope_id: None,
+                        attachments: vec![],
                     };
 
                     if tx.send(channel_msg).await.is_err() {

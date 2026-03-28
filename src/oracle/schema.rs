@@ -140,7 +140,11 @@ fn exec_ddl_idempotent(conn: &Connection, sql: &str, ignore_codes: &[i32]) -> an
         Err(ref e) => {
             if let Some(db_err) = e.db_error() {
                 if ignore_codes.contains(&db_err.code()) {
-                    debug!("DDL skipped (ORA-{}): {}", db_err.code(), db_err.message().trim());
+                    debug!(
+                        "DDL skipped (ORA-{}): {}",
+                        db_err.code(),
+                        db_err.message().trim()
+                    );
                     Ok(())
                 } else {
                     Err(anyhow::anyhow!("DDL failed: {e}\nSQL: {sql}"))
@@ -196,7 +200,11 @@ pub fn init_schema(conn: &Connection, agent_id: &str) -> anyhow::Result<()> {
 
     // 2. Create regular indexes (ignore ORA-00955 / ORA-01408)
     for idx_ddl in INDEXES {
-        exec_ddl_idempotent(conn, idx_ddl, &[ORA_NAME_ALREADY_USED, ORA_COLUMN_ALREADY_INDEXED])?;
+        exec_ddl_idempotent(
+            conn,
+            idx_ddl,
+            &[ORA_NAME_ALREADY_USED, ORA_COLUMN_ALREADY_INDEXED],
+        )?;
     }
 
     // 3. Create vector indexes (ignore ORA-00955 / ORA-01408)
@@ -254,7 +262,10 @@ mod tests {
     #[test]
     fn vector_indexes_use_cosine_distance() {
         for vidx in VECTOR_INDEXES {
-            assert!(vidx.contains("COSINE"), "Vector index missing COSINE: {vidx}");
+            assert!(
+                vidx.contains("COSINE"),
+                "Vector index missing COSINE: {vidx}"
+            );
             assert!(
                 vidx.contains("TARGET ACCURACY 95"),
                 "Vector index missing TARGET ACCURACY: {vidx}"

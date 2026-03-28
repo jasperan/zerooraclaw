@@ -9,18 +9,18 @@
 //!
 //! Ref: https://github.com/zeroclaw-labs/zeroclaw/issues/618 (item 7)
 
-use criterion::{criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, criterion_group, criterion_main};
 use std::hint::black_box;
 use std::sync::{Arc, Mutex};
 
-use zerooraclaw::agent::agent::Agent;
-use zerooraclaw::agent::dispatcher::{NativeToolDispatcher, ToolDispatcher, XmlToolDispatcher};
-use zerooraclaw::config::MemoryConfig;
-use zerooraclaw::memory;
-use zerooraclaw::memory::{Memory, MemoryCategory};
-use zerooraclaw::observability::{NoopObserver, Observer};
-use zerooraclaw::providers::{ChatRequest, ChatResponse, Provider, ToolCall};
-use zerooraclaw::tools::{Tool, ToolResult};
+use zeroclaw::agent::agent::Agent;
+use zeroclaw::agent::dispatcher::{NativeToolDispatcher, ToolDispatcher, XmlToolDispatcher};
+use zeroclaw::config::MemoryConfig;
+use zeroclaw::memory;
+use zeroclaw::memory::{Memory, MemoryCategory};
+use zeroclaw::observability::{NoopObserver, Observer};
+use zeroclaw::providers::{ChatRequest, ChatResponse, Provider, ToolCall};
+use zeroclaw::tools::{Tool, ToolResult};
 
 use anyhow::Result;
 use async_trait::async_trait;
@@ -263,7 +263,7 @@ fn bench_memory_operations(c: &mut Criterion) {
     c.bench_function("memory_recall_top10", |b| {
         b.iter(|| {
             rt.block_on(async {
-                mem.recall(black_box("zeroclaw agent"), 10, None)
+                mem.recall(black_box("zeroclaw agent"), 10, None, None, None)
                     .await
                     .unwrap()
             })

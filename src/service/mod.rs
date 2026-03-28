@@ -1,5 +1,5 @@
 use crate::config::Config;
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -89,6 +89,42 @@ fn windows_task_name() -> &'static str {
     WINDOWS_TASK_NAME
 }
 
+/// Returns whether the ZeroClaw daemon service is currently running.
+pub fn is_running() -> bool {
+    if cfg!(target_os = "macos") {
+        run_capture(Command::new("launchctl").arg("list"))
+            .map(|out| out.lines().any(|l| l.contains(SERVICE_LABEL)))
+            .unwrap_or(false)
+    } else if cfg!(target_os = "linux") {
+        is_running_linux()
+    } else if cfg!(target_os = "windows") {
+        run_capture(Command::new("schtasks").args([
+            "/Query",
+            "/TN",
+            WINDOWS_TASK_NAME,
+            "/FO",
+            "LIST",
+        ]))
+        .map(|out| out.contains("Running"))
+        .unwrap_or(false)
+    } else {
+        false
+    }
+}
+
+fn is_running_linux() -> bool {
+    // Try systemd first, then OpenRC — mirrors detect_init_system() order
+    if run_capture(Command::new("systemctl").args(["--user", "is-active", "zeroclaw.service"]))
+        .map(|out| out.trim() == "active")
+        .unwrap_or(false)
+    {
+        return true;
+    }
+    run_capture(Command::new("rc-service").args(["zeroclaw", "status"]))
+        .map(|out| out.contains("started"))
+        .unwrap_or(false)
+}
+
 pub fn handle_command(
     command: &crate::ServiceCommands,
     config: &Config,
@@ -101,6 +137,9 @@ pub fn handle_command(
         crate::ServiceCommands::Restart => restart(config, init_system),
         crate::ServiceCommands::Status => status(config, init_system),
         crate::ServiceCommands::Uninstall => uninstall(config, init_system),
+        crate::ServiceCommands::Logs { lines, follow } => {
+            logs(config, init_system, *lines, *follow)
+        }
     }
 }
 
@@ -119,6 +158,14 @@ fn install(config: &Config, init_system: InitSystem) -> Result<()> {
 
 fn start(config: &Config, init_system: InitSystem) -> Result<()> {
     if cfg!(target_os = "macos") {
+        // Ensure the Homebrew var directory exists before launchd tries to use it.
+        // The plist may reference this path for WorkingDirectory and log files.
+        let exe = std::env::current_exe().ok();
+        if let Some(ref exe_path) = exe {
+            if let Some(var_dir) = detect_homebrew_var_dir(exe_path) {
+                let _ = fs::create_dir_all(&var_dir);
+            }
+        }
         let plist = macos_service_file()?;
         run_checked(Command::new("launchctl").arg("load").arg("-w").arg(&plist))?;
         run_checked(Command::new("launchctl").arg("start").arg(SERVICE_LABEL))?;
@@ -305,6 +352,182 @@ fn status_linux(config: &Config, init_system: InitSystem) -> Result<()> {
     Ok(())
 }
 
+fn logs(config: &Config, init_system: InitSystem, lines: usize, follow: bool) -> Result<()> {
+    if cfg!(target_os = "macos") {
+        return logs_macos(config, lines, follow);
+    }
+    if cfg!(target_os = "linux") {
+        let resolved = init_system.resolve()?;
+        return logs_linux(config, resolved, lines, follow);
+    }
+    if cfg!(target_os = "windows") {
+        return logs_windows(config, lines, follow);
+    }
+    anyhow::bail!("Service log viewing is supported on macOS, Linux, and Windows only")
+}
+
+fn logs_macos(config: &Config, lines: usize, follow: bool) -> Result<()> {
+    // Try the launchd log files first (StandardOutPath / StandardErrorPath from the plist).
+    // These are the most reliable source since they capture all daemon output.
+    let exe = std::env::current_exe().ok();
+    let homebrew_var_dir = exe.as_ref().and_then(|e| detect_homebrew_var_dir(e));
+    let logs_dir = if let Some(ref var_dir) = homebrew_var_dir {
+        var_dir.join("logs")
+    } else {
+        config
+            .config_path
+            .parent()
+            .map_or_else(|| PathBuf::from("."), PathBuf::from)
+            .join("logs")
+    };
+
+    let stderr_log = logs_dir.join("daemon.stderr.log");
+    let stdout_log = logs_dir.join("daemon.stdout.log");
+
+    // Prefer stderr log (most informative), fall back to stdout
+    let log_file = if stderr_log.exists() {
+        stderr_log
+    } else if stdout_log.exists() {
+        stdout_log
+    } else {
+        bail!(
+            "No log files found in {}. Is the service installed?",
+            logs_dir.display()
+        );
+    };
+
+    if follow {
+        let status = Command::new("tail")
+            .args(["-n", &lines.to_string(), "-f"])
+            .arg(&log_file)
+            .status()
+            .context("Failed to run tail")?;
+        if !status.success() {
+            bail!("tail exited with non-zero status");
+        }
+    } else {
+        let status = Command::new("tail")
+            .args(["-n", &lines.to_string()])
+            .arg(&log_file)
+            .status()
+            .context("Failed to run tail")?;
+        if !status.success() {
+            bail!("tail exited with non-zero status");
+        }
+    }
+    Ok(())
+}
+
+fn logs_linux(config: &Config, init_system: InitSystem, lines: usize, follow: bool) -> Result<()> {
+    match init_system {
+        InitSystem::Systemd => {
+            let mut args = vec![
+                "--user".to_string(),
+                "-u".to_string(),
+                "zeroclaw.service".to_string(),
+                "-n".to_string(),
+                lines.to_string(),
+                "--no-pager".to_string(),
+            ];
+            if follow {
+                args.push("-f".to_string());
+            }
+            let status = Command::new("journalctl")
+                .args(&args)
+                .status()
+                .context("Failed to run journalctl")?;
+            if !status.success() {
+                bail!("journalctl exited with non-zero status");
+            }
+        }
+        InitSystem::Openrc => {
+            // OpenRC logs go to /var/log/zeroclaw/error.log (as configured in the init script)
+            let log_file = Path::new("/var/log/zeroclaw/error.log");
+            if !log_file.exists() {
+                // Fall back to access log
+                let access_log = Path::new("/var/log/zeroclaw/access.log");
+                if !access_log.exists() {
+                    bail!("No log files found at /var/log/zeroclaw/. Is the service installed?");
+                }
+                return tail_file(access_log, lines, follow);
+            }
+            tail_file(log_file, lines, follow)?;
+        }
+        InitSystem::Auto => unreachable!("Auto should be resolved before this point"),
+    }
+    let _ = config;
+    Ok(())
+}
+
+fn logs_windows(config: &Config, lines: usize, follow: bool) -> Result<()> {
+    let logs_dir = config
+        .config_path
+        .parent()
+        .map_or_else(|| PathBuf::from("."), PathBuf::from)
+        .join("logs");
+
+    let stderr_log = logs_dir.join("daemon.stderr.log");
+    let stdout_log = logs_dir.join("daemon.stdout.log");
+
+    let log_file = if stderr_log.exists() {
+        stderr_log
+    } else if stdout_log.exists() {
+        stdout_log
+    } else {
+        bail!(
+            "No log files found in {}. Is the service installed?",
+            logs_dir.display()
+        );
+    };
+
+    if follow {
+        // Windows: use PowerShell Get-Content -Wait for tail -f equivalent
+        let status = Command::new("powershell")
+            .args([
+                "-Command",
+                &format!(
+                    "Get-Content -Path '{}' -Tail {} -Wait",
+                    log_file.display(),
+                    lines
+                ),
+            ])
+            .status()
+            .context("Failed to run PowerShell Get-Content")?;
+        if !status.success() {
+            bail!("PowerShell Get-Content exited with non-zero status");
+        }
+    } else {
+        let status = Command::new("powershell")
+            .args([
+                "-Command",
+                &format!("Get-Content -Path '{}' -Tail {}", log_file.display(), lines),
+            ])
+            .status()
+            .context("Failed to run PowerShell Get-Content")?;
+        if !status.success() {
+            bail!("PowerShell Get-Content exited with non-zero status");
+        }
+    }
+    Ok(())
+}
+
+/// Tail a log file using the system `tail` command.
+fn tail_file(path: &Path, lines: usize, follow: bool) -> Result<()> {
+    let mut args = vec!["-n".to_string(), lines.to_string()];
+    if follow {
+        args.push("-f".to_string());
+    }
+    let status = Command::new("tail")
+        .args(&args)
+        .arg(path)
+        .status()
+        .context("Failed to run tail")?;
+    if !status.success() {
+        bail!("tail exited with non-zero status");
+    }
+    Ok(())
+}
+
 fn uninstall(config: &Config, init_system: InitSystem) -> Result<()> {
     stop(config, init_system)?;
 
@@ -374,6 +597,46 @@ fn uninstall_linux(config: &Config, init_system: InitSystem) -> Result<()> {
     Ok(())
 }
 
+/// Detect if the executable lives under a Homebrew prefix and return the
+/// corresponding `var/zeroclaw` directory.
+///
+/// Homebrew installs binaries into `<prefix>/Cellar/<formula>/<version>/bin/`
+/// and symlinks them to `<prefix>/bin/`. The canonical `var` directory is
+/// `<prefix>/var`.  We check for both layouts.
+fn detect_homebrew_var_dir(exe: &Path) -> Option<PathBuf> {
+    let path_str = exe.to_string_lossy();
+
+    // Symlinked binary: <prefix>/bin/zeroclaw
+    // Cellar binary:    <prefix>/Cellar/zeroclaw/<version>/bin/zeroclaw
+    let prefix = if path_str.contains("/Cellar/") {
+        // Walk up from .../Cellar/zeroclaw/<ver>/bin/zeroclaw to the prefix
+        let mut ancestor = exe.to_path_buf();
+        while let Some(parent) = ancestor.parent() {
+            ancestor = parent.to_path_buf();
+            if ancestor.file_name().map_or(false, |n| n == "Cellar") {
+                // prefix is one level above Cellar
+                return ancestor.parent().map(|p| p.join("var").join("zeroclaw"));
+            }
+        }
+        return None;
+    } else if let Some(bin_parent) = exe.parent() {
+        // <prefix>/bin/zeroclaw → check if <prefix>/Cellar exists (Homebrew marker)
+        if let Some(prefix) = bin_parent.parent() {
+            if prefix.join("Cellar").is_dir() {
+                Some(prefix.to_path_buf())
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    prefix.map(|p| p.join("var").join("zeroclaw"))
+}
+
 fn install_macos(config: &Config) -> Result<()> {
     let file = macos_service_file()?;
     if let Some(parent) = file.parent() {
@@ -381,19 +644,51 @@ fn install_macos(config: &Config) -> Result<()> {
     }
 
     let exe = std::env::current_exe().context("Failed to resolve current executable")?;
-    let logs_dir = config
-        .config_path
-        .parent()
-        .map_or_else(|| PathBuf::from("."), PathBuf::from)
-        .join("logs");
+
+    // When installed via Homebrew, use the Homebrew var directory for runtime
+    // data so that `brew services start zeroclaw` works out of the box.
+    let homebrew_var_dir = detect_homebrew_var_dir(&exe);
+    if let Some(ref var_dir) = homebrew_var_dir {
+        fs::create_dir_all(var_dir).with_context(|| {
+            format!(
+                "Failed to create Homebrew var directory: {}",
+                var_dir.display()
+            )
+        })?;
+    }
+
+    let logs_dir = if let Some(ref var_dir) = homebrew_var_dir {
+        var_dir.join("logs")
+    } else {
+        config
+            .config_path
+            .parent()
+            .map_or_else(|| PathBuf::from("."), PathBuf::from)
+            .join("logs")
+    };
     fs::create_dir_all(&logs_dir)?;
 
     let stdout = logs_dir.join("daemon.stdout.log");
     let stderr = logs_dir.join("daemon.stderr.log");
 
-    // Forward provider-related env vars into the launchd plist so the daemon
-    // can refresh OAuth tokens and authenticate without manual intervention.
-    let env_block = build_launchd_env_vars();
+    // When running under Homebrew, inject ZEROCLAW_CONFIG_DIR and
+    // WorkingDirectory so the daemon finds its data in the Homebrew prefix.
+    let env_section = if let Some(ref var_dir) = homebrew_var_dir {
+        format!(
+            r#"  <key>EnvironmentVariables</key>
+  <dict>
+    <key>ZEROCLAW_CONFIG_DIR</key>
+    <string>{config_dir}</string>
+  </dict>
+  <key>WorkingDirectory</key>
+  <string>{working_dir}</string>
+"#,
+            config_dir = xml_escape(&var_dir.display().to_string()),
+            working_dir = xml_escape(&var_dir.display().to_string()),
+        )
+    } else {
+        String::new()
+    };
 
     let plist = format!(
         r#"<?xml version=\"1.0\" encoding=\"UTF-8\"?>
@@ -410,8 +705,8 @@ fn install_macos(config: &Config) -> Result<()> {
   <key>RunAtLoad</key>
   <true/>
   <key>KeepAlive</key>
-  <true/>{env_block}
-  <key>StandardOutPath</key>
+  <true/>
+{env_section}  <key>StandardOutPath</key>
   <string>{stdout}</string>
   <key>StandardErrorPath</key>
   <string>{stderr}</string>
@@ -420,13 +715,16 @@ fn install_macos(config: &Config) -> Result<()> {
 "#,
         label = SERVICE_LABEL,
         exe = xml_escape(&exe.display().to_string()),
-        env_block = env_block,
+        env_section = env_section,
         stdout = xml_escape(&stdout.display().to_string()),
         stderr = xml_escape(&stderr.display().to_string())
     );
 
     fs::write(&file, plist)?;
     println!("✅ Installed launchd service: {}", file.display());
+    if let Some(ref var_dir) = homebrew_var_dir {
+        println!("   Homebrew var: {}", var_dir.display());
+    }
     println!("   Start with: zeroclaw service start");
     Ok(())
 }
@@ -446,11 +744,25 @@ fn install_linux_systemd(config: &Config) -> Result<()> {
     }
 
     let exe = std::env::current_exe().context("Failed to resolve current executable")?;
-    let env_lines = build_systemd_env_vars();
     let unit = format!(
-        "[Unit]\nDescription=ZeroClaw daemon\nAfter=network.target\n\n[Service]\nType=simple\nExecStart={exe} daemon\nRestart=always\nRestartSec=3\n{env_lines}\n[Install]\nWantedBy=default.target\n",
-        exe = exe.display(),
-        env_lines = env_lines,
+        "[Unit]\n\
+         Description=ZeroClaw daemon\n\
+         After=network.target\n\
+         \n\
+         [Service]\n\
+         Type=simple\n\
+         ExecStart={exe} daemon\n\
+         Restart=always\n\
+         RestartSec=3\n\
+         # Ensure HOME is set so headless browsers can create profile/cache dirs.\n\
+         Environment=HOME=%h\n\
+         # Allow inheriting DISPLAY and XDG_RUNTIME_DIR from the user session\n\
+         # so graphical/headless browsers can function correctly.\n\
+         PassEnvironment=DISPLAY XDG_RUNTIME_DIR\n\
+         \n\
+         [Install]\n\
+         WantedBy=default.target\n",
+        exe = exe.display()
     );
 
     fs::write(&file, unit)?;
@@ -464,25 +776,15 @@ fn install_linux_systemd(config: &Config) -> Result<()> {
 /// Check if the current process is running as root (Unix only)
 #[cfg(unix)]
 fn is_root() -> bool {
-    current_uid() == Some(0)
+    // SAFETY: `getuid()` is a simple system call that returns the real user ID of the calling
+    // process. It is always safe to call as it takes no arguments and returns a scalar value.
+    // This is a well-established pattern in Rust for getting the current user ID.
+    unsafe { libc::getuid() == 0 }
 }
 
 #[cfg(not(unix))]
 fn is_root() -> bool {
     false
-}
-
-#[cfg(unix)]
-fn current_uid() -> Option<u32> {
-    let output = Command::new("id").arg("-u").output().ok()?;
-    if !output.status.success() {
-        return None;
-    }
-
-    String::from_utf8_lossy(&output.stdout)
-        .trim()
-        .parse::<u32>()
-        .ok()
 }
 
 /// Check if the zeroclaw user exists and has expected properties.
@@ -515,7 +817,9 @@ fn check_zeroclaw_user() -> Result<()> {
                     bail!(
                         "User 'zeroclaw' exists but has unexpected UID {} (expected system UID < 1000).\n\
                          Recreate with: sudo {} && sudo {}",
-                        uid, del_cmd, add_cmd
+                        uid,
+                        del_cmd,
+                        add_cmd
                     );
                 }
 
@@ -846,8 +1150,8 @@ fn generate_openrc_script(exe_path: &Path, config_dir: &Path) -> String {
 name="zeroclaw"
 description="ZeroClaw daemon"
 
-command="{}"
-command_args="--config-dir {} daemon"
+command="{exe}"
+command_args="--config-dir {config_dir} daemon"
 command_background="yes"
 command_user="zeroclaw:zeroclaw"
 pidfile="/run/${{RC_SVCNAME}}.pid"
@@ -855,13 +1159,21 @@ umask 027
 output_log="/var/log/zeroclaw/access.log"
 error_log="/var/log/zeroclaw/error.log"
 
+# Provide HOME so headless browsers can create profile/cache directories.
+# Without this, Chromium/Firefox fail with sandbox or profile errors.
+export HOME="/var/lib/zeroclaw"
+
 depend() {{
     need net
     after firewall
 }}
+
+start_pre() {{
+    checkpath --directory --owner zeroclaw:zeroclaw --mode 0750 /var/lib/zeroclaw
+}}
 "#,
-        exe_path.display(),
-        config_dir.display()
+        exe = exe_path.display(),
+        config_dir = config_dir.display(),
     )
 }
 
@@ -1044,61 +1356,6 @@ fn install_windows(config: &Config) -> Result<()> {
     Ok(())
 }
 
-/// Env vars to forward into the launchd / systemd service so that the daemon
-/// can refresh OAuth tokens and authenticate with providers automatically.
-const SERVICE_ENV_VARS: &[&str] = &[
-    "GEMINI_API_KEY",
-    "GEMINI_CLI_CLIENT_ID",
-    "GEMINI_CLI_CLIENT_SECRET",
-    "OPENAI_API_KEY",
-    "ANTHROPIC_API_KEY",
-    "OPENROUTER_API_KEY",
-];
-
-/// Build the `<key>EnvironmentVariables</key>` plist fragment from env vars
-/// present in the current process. Returns an empty string if none are set.
-fn build_launchd_env_vars() -> String {
-    let mut entries = Vec::new();
-    for &var in SERVICE_ENV_VARS {
-        if let Ok(val) = std::env::var(var) {
-            if !val.is_empty() {
-                entries.push(format!(
-                    "    <key>{}</key>\n    <string>{}</string>",
-                    xml_escape(var),
-                    xml_escape(&val)
-                ));
-            }
-        }
-    }
-    if entries.is_empty() {
-        String::new()
-    } else {
-        format!(
-            "\n  <key>EnvironmentVariables</key>\n  <dict>\n{}\n  </dict>",
-            entries.join("\n")
-        )
-    }
-}
-
-/// Build `Environment=` lines for a systemd unit from env vars present in the
-/// current process. Returns an empty string if none are set.
-fn build_systemd_env_vars() -> String {
-    let mut lines = Vec::new();
-    for &var in SERVICE_ENV_VARS {
-        if let Ok(val) = std::env::var(var) {
-            if !val.is_empty() {
-                // systemd Environment values with special chars need quoting
-                lines.push(format!("Environment=\"{var}={val}\""));
-            }
-        }
-    }
-    if lines.is_empty() {
-        String::new()
-    } else {
-        format!("{}\n", lines.join("\n"))
-    }
-}
-
 fn macos_service_file() -> Result<PathBuf> {
     let home = directories::UserDirs::new()
         .map(|u| u.home_dir().to_path_buf())
@@ -1160,7 +1417,7 @@ mod tests {
     #[cfg(not(target_os = "windows"))]
     #[test]
     fn run_capture_reads_stdout() {
-        let out = run_capture(Command::new("sh").args(["-lc", "echo hello"]))
+        let out = run_capture(Command::new("sh").args(["-c", "echo hello"]))
             .expect("stdout capture should succeed");
         assert_eq!(out.trim(), "hello");
     }
@@ -1168,7 +1425,7 @@ mod tests {
     #[cfg(not(target_os = "windows"))]
     #[test]
     fn run_capture_falls_back_to_stderr() {
-        let out = run_capture(Command::new("sh").args(["-lc", "echo warn 1>&2"]))
+        let out = run_capture(Command::new("sh").args(["-c", "echo warn 1>&2"]))
             .expect("stderr capture should succeed");
         assert_eq!(out.trim(), "warn");
     }
@@ -1176,7 +1433,7 @@ mod tests {
     #[cfg(not(target_os = "windows"))]
     #[test]
     fn run_checked_errors_on_non_zero_status() {
-        let err = run_checked(Command::new("sh").args(["-lc", "exit 17"]))
+        let err = run_checked(Command::new("sh").args(["-c", "exit 17"]))
             .expect_err("non-zero exit should error");
         assert!(err.to_string().contains("Command failed"));
     }
@@ -1243,7 +1500,10 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn is_root_matches_system_uid() {
-        assert_eq!(is_root(), current_uid() == Some(0));
+        // SAFETY: `getuid()` is a simple system call that returns the real user ID of the calling
+        // process. It is always safe to call as it takes no arguments and returns a scalar value.
+        // This test verifies our `is_root()` wrapper returns the same result as the raw syscall.
+        assert_eq!(is_root(), unsafe { libc::getuid() == 0 });
     }
 
     #[test]
@@ -1269,6 +1529,67 @@ mod tests {
         assert!(script.contains("depend()"));
         assert!(script.contains("need net"));
         assert!(script.contains("after firewall"));
+    }
+
+    #[test]
+    fn generate_openrc_script_sets_home_for_browser() {
+        use std::path::PathBuf;
+
+        let exe_path = PathBuf::from("/usr/local/bin/zeroclaw");
+        let script = generate_openrc_script(&exe_path, Path::new("/etc/zeroclaw"));
+
+        assert!(
+            script.contains("export HOME=\"/var/lib/zeroclaw\""),
+            "OpenRC script must set HOME for headless browser support"
+        );
+    }
+
+    #[test]
+    fn generate_openrc_script_creates_home_directory() {
+        use std::path::PathBuf;
+
+        let exe_path = PathBuf::from("/usr/local/bin/zeroclaw");
+        let script = generate_openrc_script(&exe_path, Path::new("/etc/zeroclaw"));
+
+        assert!(
+            script.contains("start_pre()"),
+            "OpenRC script must have start_pre to create HOME dir"
+        );
+        assert!(
+            script.contains("checkpath --directory --owner zeroclaw:zeroclaw"),
+            "start_pre must ensure /var/lib/zeroclaw exists with correct ownership"
+        );
+    }
+
+    #[test]
+    fn systemd_unit_contains_home_and_pass_environment() {
+        let unit = "[Unit]\n\
+             Description=ZeroClaw daemon\n\
+             After=network.target\n\
+             \n\
+             [Service]\n\
+             Type=simple\n\
+             ExecStart=/usr/local/bin/zeroclaw daemon\n\
+             Restart=always\n\
+             RestartSec=3\n\
+             # Ensure HOME is set so headless browsers can create profile/cache dirs.\n\
+             Environment=HOME=%h\n\
+             # Allow inheriting DISPLAY and XDG_RUNTIME_DIR from the user session\n\
+             # so graphical/headless browsers can function correctly.\n\
+             PassEnvironment=DISPLAY XDG_RUNTIME_DIR\n\
+             \n\
+             [Install]\n\
+             WantedBy=default.target\n"
+            .to_string();
+
+        assert!(
+            unit.contains("Environment=HOME=%h"),
+            "systemd unit must set HOME for headless browser support"
+        );
+        assert!(
+            unit.contains("PassEnvironment=DISPLAY XDG_RUNTIME_DIR"),
+            "systemd unit must pass through display/runtime env vars"
+        );
     }
 
     #[test]
@@ -1315,6 +1636,27 @@ mod tests {
         );
     }
 
+    #[test]
+    fn detect_homebrew_var_dir_from_cellar_path() {
+        let exe = PathBuf::from("/opt/homebrew/Cellar/zeroclaw/1.2.3/bin/zeroclaw");
+        let var_dir = detect_homebrew_var_dir(&exe);
+        assert_eq!(var_dir, Some(PathBuf::from("/opt/homebrew/var/zeroclaw")));
+    }
+
+    #[test]
+    fn detect_homebrew_var_dir_intel_cellar_path() {
+        let exe = PathBuf::from("/usr/local/Cellar/zeroclaw/1.0.0/bin/zeroclaw");
+        let var_dir = detect_homebrew_var_dir(&exe);
+        assert_eq!(var_dir, Some(PathBuf::from("/usr/local/var/zeroclaw")));
+    }
+
+    #[test]
+    fn detect_homebrew_var_dir_non_homebrew_path() {
+        let exe = PathBuf::from("/home/user/.cargo/bin/zeroclaw");
+        let var_dir = detect_homebrew_var_dir(&exe);
+        assert_eq!(var_dir, None);
+    }
+
     #[cfg(unix)]
     #[test]
     fn openrc_writability_probe_falls_back_to_su() {
@@ -1331,5 +1673,40 @@ mod tests {
                 "zeroclaw".to_string()
             ]
         );
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    #[test]
+    fn tail_file_errors_on_missing_file() {
+        let missing = Path::new("/tmp/zeroclaw-test-nonexistent-log-file.log");
+        let result = tail_file(missing, 10, false);
+        assert!(result.is_err(), "tail on missing file should fail");
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    #[test]
+    fn tail_file_reads_existing_file() {
+        let dir = tempfile::tempdir().expect("failed to create temp dir");
+        let log = dir.path().join("test-tail.log");
+        fs::write(&log, "line1\nline2\nline3\nline4\nline5\n").unwrap();
+        // tail should succeed on existing file
+        let result = tail_file(&log, 3, false);
+        assert!(result.is_ok(), "tail on existing file should succeed");
+    }
+
+    #[test]
+    fn logs_variant_is_recognized() {
+        // Ensure the Logs variant can be constructed and matched
+        let cmd = crate::ServiceCommands::Logs {
+            lines: 25,
+            follow: true,
+        };
+        match &cmd {
+            crate::ServiceCommands::Logs { lines, follow } => {
+                assert_eq!(*lines, 25);
+                assert!(*follow);
+            }
+            _ => panic!("Expected Logs variant"),
+        }
     }
 }

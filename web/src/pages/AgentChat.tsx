@@ -1,40 +1,101 @@
-import { useState, useEffect, useRef } from 'react';
-import { Send, Bot, User, AlertCircle } from 'lucide-react';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { Send, Bot, User, AlertCircle, Copy, Check } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import type { WsMessage } from '@/types/api';
-import { WebSocketClient } from '@/lib/ws';
+import { WebSocketClient, getOrCreateSessionId } from '@/lib/ws';
+import { generateUUID } from '@/lib/uuid';
+import { useDraft } from '@/hooks/useDraft';
+import { t } from '@/lib/i18n';
+import { getSessionMessages } from '@/lib/api';
+import {
+  loadChatHistory,
+  mapServerMessagesToPersisted,
+  persistedToUiMessages,
+  saveChatHistory,
+  uiMessagesToPersisted,
+} from '@/lib/chatHistoryStorage';
 
 interface ChatMessage {
   id: string;
   role: 'user' | 'agent';
   content: string;
+  thinking?: string;
+  markdown?: boolean;
   timestamp: Date;
 }
 
-let fallbackMessageIdCounter = 0;
-const EMPTY_DONE_FALLBACK =
-  'Tool execution completed, but no final response text was returned.';
-
-function makeMessageId(): string {
-  const uuid = globalThis.crypto?.randomUUID?.();
-  if (uuid) return uuid;
-
-  fallbackMessageIdCounter += 1;
-  return `msg_${Date.now().toString(36)}_${fallbackMessageIdCounter.toString(36)}_${Math.random()
-    .toString(36)
-    .slice(2, 10)}`;
-}
+const DRAFT_KEY = 'agent-chat';
 
 export default function AgentChat() {
+  const sessionIdRef = useRef(getOrCreateSessionId());
+  const { draft, saveDraft, clearDraft } = useDraft(DRAFT_KEY);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [input, setInput] = useState('');
+  const [historyReady, setHistoryReady] = useState(false);
+  const [input, setInput] = useState(draft);
   const [typing, setTyping] = useState(false);
   const [connected, setConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const wsRef = useRef<WebSocketClient | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
   const pendingContentRef = useRef('');
+  const pendingThinkingRef = useRef('');
+  // Snapshot of thinking captured at chunk_reset, so it survives the reset.
+  const capturedThinkingRef = useRef('');
+  const [streamingContent, setStreamingContent] = useState('');
+  const [streamingThinking, setStreamingThinking] = useState('');
+
+  // Persist draft to in-memory store so it survives route changes
+  useEffect(() => {
+    saveDraft(input);
+  }, [input, saveDraft]);
+
+  // Hydrate chat from server (preferred) or localStorage fallback
+  useEffect(() => {
+    const sid = sessionIdRef.current;
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const res = await getSessionMessages(sid);
+        if (cancelled) return;
+        if (res.session_persistence && res.messages.length > 0) {
+          setMessages((prev) =>
+            prev.length > 0 ? prev : persistedToUiMessages(mapServerMessagesToPersisted(res.messages)),
+          );
+        } else if (!res.session_persistence) {
+          setMessages((prev) => {
+            if (prev.length > 0) return prev;
+            const ls = loadChatHistory(sid);
+            return ls.length ? persistedToUiMessages(ls) : prev;
+          });
+        }
+      } catch {
+        if (!cancelled) {
+          setMessages((prev) => {
+            if (prev.length > 0) return prev;
+            const ls = loadChatHistory(sid);
+            return ls.length ? persistedToUiMessages(ls) : prev;
+          });
+        }
+      } finally {
+        if (!cancelled) setHistoryReady(true);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Mirror transcript to localStorage (bounded); server remains source of truth when persistence is on
+  useEffect(() => {
+    if (!historyReady) return;
+    saveChatHistory(sessionIdRef.current, uiMessagesToPersisted(messages));
+  }, [messages, historyReady]);
 
   useEffect(() => {
     const ws = new WebSocketClient();
@@ -44,37 +105,67 @@ export default function AgentChat() {
       setError(null);
     };
 
-    ws.onClose = () => {
+    ws.onClose = (ev: CloseEvent) => {
       setConnected(false);
+      if (ev.code !== 1000 && ev.code !== 1001) {
+        setError(`Connection closed unexpectedly (code: ${ev.code}). Please check your configuration.`);
+      }
     };
 
     ws.onError = () => {
-      setError('Connection error. Attempting to reconnect...');
+      setError(t('agent.connection_error'));
     };
 
     ws.onMessage = (msg: WsMessage) => {
       switch (msg.type) {
+        case 'session_start':
+        case 'connected':
+          break;
+
+        case 'thinking':
+          setTyping(true);
+          pendingThinkingRef.current += msg.content ?? '';
+          setStreamingThinking(pendingThinkingRef.current);
+          break;
+
         case 'chunk':
           setTyping(true);
           pendingContentRef.current += msg.content ?? '';
+          setStreamingContent(pendingContentRef.current);
+          break;
+
+        case 'chunk_reset':
+          // Server signals that the authoritative done message follows.
+          // Snapshot thinking before clearing display state.
+          capturedThinkingRef.current = pendingThinkingRef.current;
+          pendingContentRef.current = '';
+          pendingThinkingRef.current = '';
+          setStreamingContent('');
+          setStreamingThinking('');
           break;
 
         case 'message':
         case 'done': {
-          const content = (msg.full_response ?? msg.content ?? pendingContentRef.current ?? '').trim();
-          const finalContent = content || EMPTY_DONE_FALLBACK;
-
-          setMessages((prev) => [
-            ...prev,
-            {
-              id: makeMessageId(),
-              role: 'agent',
-              content: finalContent,
-              timestamp: new Date(),
-            },
-          ]);
-
+          const content = msg.full_response ?? msg.content ?? pendingContentRef.current;
+          const thinking = capturedThinkingRef.current || pendingThinkingRef.current || undefined;
+          if (content) {
+            setMessages((prev) => [
+              ...prev,
+              {
+                id: generateUUID(),
+                role: 'agent',
+                content,
+                thinking,
+                markdown: true,
+                timestamp: new Date(),
+              },
+            ]);
+          }
           pendingContentRef.current = '';
+          pendingThinkingRef.current = '';
+          capturedThinkingRef.current = '';
+          setStreamingContent('');
+          setStreamingThinking('');
           setTyping(false);
           break;
         }
@@ -83,9 +174,9 @@ export default function AgentChat() {
           setMessages((prev) => [
             ...prev,
             {
-              id: makeMessageId(),
+              id: generateUUID(),
               role: 'agent',
-              content: `[Tool Call] ${msg.name ?? 'unknown'}(${JSON.stringify(msg.args ?? {})})`,
+              content: `${t('agent.tool_call_prefix')} ${msg.name ?? 'unknown'}(${JSON.stringify(msg.args ?? {})})`,
               timestamp: new Date(),
             },
           ]);
@@ -95,9 +186,9 @@ export default function AgentChat() {
           setMessages((prev) => [
             ...prev,
             {
-              id: makeMessageId(),
+              id: generateUUID(),
               role: 'agent',
-              content: `[Tool Result] ${msg.output ?? ''}`,
+              content: `${t('agent.tool_result_prefix')} ${msg.output ?? ''}`,
               timestamp: new Date(),
             },
           ]);
@@ -107,14 +198,22 @@ export default function AgentChat() {
           setMessages((prev) => [
             ...prev,
             {
-              id: makeMessageId(),
+              id: generateUUID(),
               role: 'agent',
-              content: `[Error] ${msg.message ?? 'Unknown error'}`,
+              content: `${t('agent.error_prefix')} ${msg.message ?? t('agent.unknown_error')}`,
               timestamp: new Date(),
             },
           ]);
+          if (msg.code === 'AGENT_INIT_FAILED' || msg.code === 'AUTH_ERROR' || msg.code === 'PROVIDER_ERROR') {
+            setError(`Configuration error: ${msg.message}. Please check your provider settings (API key, model, etc.).`);
+          } else if (msg.code === 'INVALID_JSON' || msg.code === 'UNKNOWN_MESSAGE_TYPE' || msg.code === 'EMPTY_CONTENT') {
+            setError(`Message error: ${msg.message}`);
+          }
           setTyping(false);
           pendingContentRef.current = '';
+          pendingThinkingRef.current = '';
+          setStreamingContent('');
+          setStreamingThinking('');
           break;
       }
     };
@@ -129,7 +228,7 @@ export default function AgentChat() {
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, typing]);
+  }, [messages, typing, streamingContent]);
 
   const handleSend = () => {
     const trimmed = input.trim();
@@ -138,7 +237,7 @@ export default function AgentChat() {
     setMessages((prev) => [
       ...prev,
       {
-        id: makeMessageId(),
+        id: generateUUID(),
         role: 'user',
         content: trimmed,
         timestamp: new Date(),
@@ -149,12 +248,17 @@ export default function AgentChat() {
       wsRef.current.sendMessage(trimmed);
       setTyping(true);
       pendingContentRef.current = '';
+      pendingThinkingRef.current = '';
     } catch {
-      setError('Failed to send message. Please try again.');
+      setError(t('agent.send_error'));
     }
 
     setInput('');
-    inputRef.current?.focus();
+    clearDraft();
+    if (inputRef.current) {
+      inputRef.current.style.height = 'auto';
+      inputRef.current.focus();
+    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -164,12 +268,55 @@ export default function AgentChat() {
     }
   };
 
+  const handleTextareaChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setInput(e.target.value);
+    e.target.style.height = 'auto';
+    e.target.style.height = `${Math.min(e.target.scrollHeight, 200)}px`;
+  };
+
+  const handleCopy = useCallback((msgId: string, content: string) => {
+    const onSuccess = () => {
+      setCopiedId(msgId);
+      setTimeout(() => setCopiedId((prev) => (prev === msgId ? null : prev)), 2000);
+    };
+
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(content).then(onSuccess).catch(() => {
+        // Fallback for insecure contexts (HTTP)
+        fallbackCopy(content) && onSuccess();
+      });
+    } else {
+      fallbackCopy(content) && onSuccess();
+    }
+  }, []);
+
+  /**
+   * Fallback copy using a temporary textarea for HTTP contexts
+   * where navigator.clipboard is unavailable.
+   */
+  function fallbackCopy(text: string): boolean {
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.style.position = 'fixed';
+    textarea.style.opacity = '0';
+    document.body.appendChild(textarea);
+    textarea.select();
+    try {
+      document.execCommand('copy');
+      return true;
+    } catch {
+      return false;
+    } finally {
+      document.body.removeChild(textarea);
+    }
+  }
+
   return (
     <div className="flex flex-col h-[calc(100vh-3.5rem)]">
       {/* Connection status bar */}
       {error && (
-        <div className="px-4 py-2 bg-red-900/30 border-b border-red-700 flex items-center gap-2 text-sm text-red-300">
-          <AlertCircle className="h-4 w-4 flex-shrink-0" />
+        <div className="px-4 py-2 border-b flex items-center gap-2 text-sm animate-fade-in" style={{ background: 'rgba(239, 68, 68, 0.08)', borderColor: 'rgba(239, 68, 68, 0.2)', color: '#f87171', }}>
+          <AlertCircle className="h-4 w-4 shrink-0" />
           {error}
         </div>
       )}
@@ -177,65 +324,101 @@ export default function AgentChat() {
       {/* Messages area */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {messages.length === 0 && (
-          <div className="flex flex-col items-center justify-center h-full text-gray-500">
-            <Bot className="h-12 w-12 mb-3 text-gray-600" />
-            <p className="text-lg font-medium">ZeroClaw Agent</p>
-            <p className="text-sm mt-1">Send a message to start the conversation</p>
+          <div className="flex flex-col items-center justify-center h-full text-center animate-fade-in" style={{ color: 'var(--pc-text-muted)' }}>
+            <div className="h-16 w-16 rounded-3xl flex items-center justify-center mb-4 animate-float" style={{ background: 'var(--pc-accent-glow)' }}>
+              <Bot className="h-8 w-8" style={{ color: 'var(--pc-accent)' }} />
+            </div>
+            <p className="text-lg font-semibold mb-1" style={{ color: 'var(--pc-text-primary)' }}>ZeroClaw Agent</p>
+            <p className="text-sm" style={{ color: 'var(--pc-text-muted)' }}>{t('agent.start_conversation')}</p>
           </div>
         )}
 
-        {messages.map((msg) => (
+        {messages.map((msg, idx) => (
           <div
             key={msg.id}
-            className={`flex items-start gap-3 ${
-              msg.role === 'user' ? 'flex-row-reverse' : ''
+            className={`group flex items-start gap-3 ${
+              msg.role === 'user' ? 'flex-row-reverse animate-slide-in-right' : 'animate-slide-in-left'
             }`}
+            style={{ animationDelay: `${Math.min(idx * 30, 200)}ms` }}
           >
             <div
-              className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center ${
-                msg.role === 'user'
-                  ? 'bg-blue-600'
-                  : 'bg-gray-700'
-              }`}
+              className="flex-shrink-0 w-9 h-9 rounded-2xl flex items-center justify-center border"
+              style={{
+                background: msg.role === 'user' ? 'var(--pc-accent)' : 'var(--pc-bg-elevated)',
+                borderColor: msg.role === 'user' ? 'var(--pc-accent)' : 'var(--pc-border)',
+              }}
             >
               {msg.role === 'user' ? (
                 <User className="h-4 w-4 text-white" />
               ) : (
-                <Bot className="h-4 w-4 text-white" />
+                <Bot className="h-4 w-4" style={{ color: 'var(--pc-accent)' }} />
               )}
             </div>
-            <div
-              className={`max-w-[75%] rounded-xl px-4 py-3 ${
-                msg.role === 'user'
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-gray-800 text-gray-100 border border-gray-700'
-              }`}
-            >
-              <p className="text-sm whitespace-pre-wrap break-words">{msg.content}</p>
-              <p
-                className={`text-xs mt-1 ${
-                  msg.role === 'user' ? 'text-blue-200' : 'text-gray-500'
-                }`}
+            <div className="relative max-w-[75%]">
+              <div
+                className="rounded-2xl px-4 py-3 border"
+                style={
+                  msg.role === 'user'
+                    ? { background: 'var(--pc-accent-glow)', borderColor: 'var(--pc-accent-dim)', color: 'var(--pc-text-primary)', }
+                    : { background: 'var(--pc-bg-elevated)', borderColor: 'var(--pc-border)', color: 'var(--pc-text-primary)', }
+                }
               >
-                {msg.timestamp.toLocaleTimeString()}
-              </p>
+                {msg.thinking && (
+                  <details className="mb-2">
+                    <summary className="text-xs cursor-pointer select-none" style={{ color: 'var(--pc-text-muted)' }}>Thinking</summary>
+                    <pre className="text-xs mt-1 whitespace-pre-wrap break-words leading-relaxed overflow-auto max-h-60 p-2 rounded-lg" style={{ color: 'var(--pc-text-muted)', background: 'var(--pc-bg-surface)' }}>{msg.thinking}</pre>
+                  </details>
+                )}
+                {msg.markdown ? (
+                  <div className="text-sm break-words leading-relaxed chat-markdown"><ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown></div>
+                ) : (
+                  <p className="text-sm whitespace-pre-wrap break-words leading-relaxed">{msg.content}</p>
+                )}
+                <p
+                  className="text-[10px] mt-1.5" style={{ color: msg.role === 'user' ? 'var(--pc-accent-light)' : 'var(--pc-text-faint)' }}>
+                  {msg.timestamp.toLocaleTimeString()}
+                </p>
+              </div>
+              <button
+                onClick={() => handleCopy(msg.id, msg.content)}
+                aria-label={t('agent.copy_message')}
+                className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-all p-1.5 rounded-xl"
+                style={{ background: 'var(--pc-bg-elevated)', border: '1px solid var(--pc-border)', color: 'var(--pc-text-muted)', }}
+                onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--pc-text-primary)'; e.currentTarget.style.borderColor = 'var(--pc-accent-dim)'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--pc-text-muted)'; e.currentTarget.style.borderColor = 'var(--pc-border)'; }}
+              >
+                {copiedId === msg.id ? (
+                  <Check className="h-3 w-3" style={{ color: '#34d399' }} />
+                ) : (
+                  <Copy className="h-3 w-3" />
+                )}
+              </button>
             </div>
           </div>
         ))}
 
         {typing && (
-          <div className="flex items-start gap-3">
-            <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gray-700 flex items-center justify-center">
-              <Bot className="h-4 w-4 text-white" />
+          <div className="flex items-start gap-3 animate-fade-in">
+            <div className="flex-shrink-0 w-9 h-9 rounded-2xl flex items-center justify-center border" style={{ background: 'var(--pc-bg-elevated)', borderColor: 'var(--pc-border)' }}>
+              <Bot className="h-4 w-4" style={{ color: 'var(--pc-accent)' }} />
             </div>
-            <div className="bg-gray-800 border border-gray-700 rounded-xl px-4 py-3">
-              <div className="flex items-center gap-1">
-                <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+            {streamingContent || streamingThinking ? (
+              <div className="rounded-2xl px-4 py-3 border max-w-[75%]" style={{ background: 'var(--pc-bg-elevated)', borderColor: 'var(--pc-border)', color: 'var(--pc-text-primary)' }}>
+                {streamingThinking && (
+                  <details className="mb-2" open={!streamingContent}>
+                    <summary className="text-xs cursor-pointer select-none" style={{ color: 'var(--pc-text-muted)' }}>Thinking{!streamingContent && '...'}</summary>
+                    <pre className="text-xs mt-1 whitespace-pre-wrap break-words leading-relaxed overflow-auto max-h-60 p-2 rounded-lg" style={{ color: 'var(--pc-text-muted)', background: 'var(--pc-bg-surface)' }}>{streamingThinking}</pre>
+                  </details>
+                )}
+                {streamingContent && <p className="text-sm whitespace-pre-wrap break-words leading-relaxed">{streamingContent}</p>}
               </div>
-              <p className="text-xs text-gray-500 mt-1">Typing...</p>
-            </div>
+            ) : (
+              <div className="rounded-2xl px-4 py-3 border flex items-center gap-1.5" style={{ background: 'var(--pc-bg-elevated)', borderColor: 'var(--pc-border)' }}>
+                <span className="bounce-dot w-1.5 h-1.5 rounded-full" style={{ background: 'var(--pc-accent)' }} />
+                <span className="bounce-dot w-1.5 h-1.5 rounded-full" style={{ background: 'var(--pc-accent)' }} />
+                <span className="bounce-dot w-1.5 h-1.5 rounded-full" style={{ background: 'var(--pc-accent)' }} />
+              </div>
+            )}
           </div>
         )}
 
@@ -243,36 +426,39 @@ export default function AgentChat() {
       </div>
 
       {/* Input area */}
-      <div className="border-t border-gray-800 bg-gray-900 p-4">
+      <div className="border-t p-4" style={{ borderColor: 'var(--pc-border)', background: 'var(--pc-bg-surface)' }}>
         <div className="flex items-center gap-3 max-w-4xl mx-auto">
-          <div className="flex-1 relative">
-            <input
-              ref={inputRef}
-              type="text"
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder={connected ? 'Type a message...' : 'Connecting...'}
-              disabled={!connected}
-              className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50"
-            />
-          </div>
+          <textarea
+            ref={inputRef}
+            rows={1}
+            value={input}
+            onChange={handleTextareaChange}
+            onKeyDown={handleKeyDown}
+            placeholder={connected ? t('agent.type_message') : t('agent.connecting')}
+            disabled={!connected}
+            className="input-electric flex-1 px-4 text-sm resize-none disabled:opacity-40"
+            style={{ minHeight: '44px', maxHeight: '200px', paddingTop: '10px', paddingBottom: '10px' }}
+          />
           <button
+            type='button'
             onClick={handleSend}
             disabled={!connected || !input.trim()}
-            className="flex-shrink-0 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-700 disabled:text-gray-500 text-white rounded-xl p-3 transition-colors"
+            className="btn-electric flex-shrink-0 rounded-2xl flex items-center justify-center"
+            style={{ color: 'white', width: '40px', height: '40px' }}
           >
             <Send className="h-5 w-5" />
           </button>
         </div>
         <div className="flex items-center justify-center mt-2 gap-2">
           <span
-            className={`inline-block h-2 w-2 rounded-full ${
-              connected ? 'bg-green-500' : 'bg-red-500'
-            }`}
+            className="status-dot"
+            style={connected
+              ? { background: 'var(--color-status-success)', boxShadow: '0 0 6px var(--color-status-success)' }
+              : { background: 'var(--color-status-error)', boxShadow: '0 0 6px var(--color-status-error)' }
+            }
           />
-          <span className="text-xs text-gray-500">
-            {connected ? 'Connected' : 'Disconnected'}
+          <span className="text-[10px]" style={{ color: 'var(--pc-text-faint)' }}>
+            {connected ? t('agent.connected_status') : t('agent.disconnected_status')}
           </span>
         </div>
       </div>

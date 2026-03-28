@@ -1,13 +1,10 @@
-use crate::config::{build_runtime_proxy_client_with_timeouts, MultimodalConfig};
+use crate::config::{MultimodalConfig, build_runtime_proxy_client_with_timeouts};
 use crate::providers::ChatMessage;
-use base64::{engine::general_purpose::STANDARD, Engine as _};
+use base64::{Engine as _, engine::general_purpose::STANDARD};
 use reqwest::Client;
-use std::io::Cursor;
 use std::path::Path;
 
 const IMAGE_MARKER_PREFIX: &str = "[IMAGE:";
-const OPTIMIZED_IMAGE_MAX_DIMENSION: u32 = 512;
-const OPTIMIZED_IMAGE_TARGET_BYTES: usize = 256 * 1024;
 const ALLOWED_IMAGE_MIME_TYPES: &[&str] = &[
     "image/png",
     "image/jpeg",
@@ -27,7 +24,9 @@ pub enum MultimodalError {
     #[error("multimodal image limit exceeded: max_images={max_images}, found={found}")]
     TooManyImages { max_images: usize, found: usize },
 
-    #[error("multimodal image size limit exceeded for '{input}': {size_bytes} bytes > {max_bytes} bytes")]
+    #[error(
+        "multimodal image size limit exceeded for '{input}': {size_bytes} bytes > {max_bytes} bytes"
+    )]
     ImageTooLarge {
         input: String,
         size_bytes: usize,
@@ -201,7 +200,7 @@ async fn normalize_image_reference(
     remote_client: &Client,
 ) -> anyhow::Result<String> {
     if source.starts_with("data:") {
-        return normalize_data_uri(source, max_bytes).await;
+        return normalize_data_uri(source, max_bytes);
     }
 
     if source.starts_with("http://") || source.starts_with("https://") {
@@ -218,7 +217,7 @@ async fn normalize_image_reference(
     normalize_local_image(source, max_bytes).await
 }
 
-async fn normalize_data_uri(source: &str, max_bytes: usize) -> anyhow::Result<String> {
+fn normalize_data_uri(source: &str, max_bytes: usize) -> anyhow::Result<String> {
     let Some(comma_idx) = source.find(',') else {
         return Err(MultimodalError::InvalidMarker {
             input: source.to_string(),
@@ -255,14 +254,9 @@ async fn normalize_data_uri(source: &str, max_bytes: usize) -> anyhow::Result<St
             reason: format!("invalid base64 payload: {error}"),
         })?;
 
-    let (optimized_bytes, optimized_mime) =
-        optimize_image_for_prompt(source, decoded, &mime).await?;
-    validate_size(source, optimized_bytes.len(), max_bytes)?;
+    validate_size(source, decoded.len(), max_bytes)?;
 
-    Ok(format!(
-        "data:{optimized_mime};base64,{}",
-        STANDARD.encode(optimized_bytes)
-    ))
+    Ok(format!("data:{mime};base64,{}", STANDARD.encode(decoded)))
 }
 
 async fn normalize_remote_image(
@@ -315,14 +309,8 @@ async fn normalize_remote_image(
     })?;
 
     validate_mime(source, &mime)?;
-    let (optimized_bytes, optimized_mime) =
-        optimize_image_for_prompt(source, bytes.to_vec(), &mime).await?;
-    validate_size(source, optimized_bytes.len(), max_bytes)?;
 
-    Ok(format!(
-        "data:{optimized_mime};base64,{}",
-        STANDARD.encode(optimized_bytes)
-    ))
+    Ok(format!("data:{mime};base64,{}", STANDARD.encode(bytes)))
 }
 
 async fn normalize_local_image(source: &str, max_bytes: usize) -> anyhow::Result<String> {
@@ -364,78 +352,8 @@ async fn normalize_local_image(source: &str, max_bytes: usize) -> anyhow::Result
         })?;
 
     validate_mime(source, &mime)?;
-    let (optimized_bytes, optimized_mime) = optimize_image_for_prompt(source, bytes, &mime).await?;
-    validate_size(source, optimized_bytes.len(), max_bytes)?;
 
-    Ok(format!(
-        "data:{optimized_mime};base64,{}",
-        STANDARD.encode(optimized_bytes)
-    ))
-}
-
-async fn optimize_image_for_prompt(
-    source: &str,
-    bytes: Vec<u8>,
-    mime: &str,
-) -> anyhow::Result<(Vec<u8>, String)> {
-    validate_mime(source, mime)?;
-
-    let source_owned = source.to_string();
-    let mime_owned = mime.to_string();
-    tokio::task::spawn_blocking(move || {
-        optimize_image_for_prompt_blocking(source_owned, bytes, mime_owned)
-    })
-    .await
-    .map_err(|error| MultimodalError::InvalidMarker {
-        input: source.to_string(),
-        reason: format!("failed to optimize image payload: {error}"),
-    })?
-}
-
-fn optimize_image_for_prompt_blocking(
-    source: String,
-    bytes: Vec<u8>,
-    mime: String,
-) -> anyhow::Result<(Vec<u8>, String)> {
-    let decoded = match image::load_from_memory(&bytes) {
-        Ok(decoded) => decoded,
-        Err(_) => return Ok((bytes, mime)),
-    };
-
-    let resized = if decoded.width() > OPTIMIZED_IMAGE_MAX_DIMENSION
-        || decoded.height() > OPTIMIZED_IMAGE_MAX_DIMENSION
-    {
-        decoded.thumbnail(OPTIMIZED_IMAGE_MAX_DIMENSION, OPTIMIZED_IMAGE_MAX_DIMENSION)
-    } else {
-        decoded
-    };
-
-    let mut best_jpeg = Vec::new();
-    for quality in [85_u8, 70_u8, 55_u8, 40_u8] {
-        let mut encoded = Vec::new();
-        {
-            let mut cursor = Cursor::new(&mut encoded);
-            let mut encoder =
-                image::codecs::jpeg::JpegEncoder::new_with_quality(&mut cursor, quality);
-            encoder
-                .encode_image(&resized)
-                .map_err(|error| MultimodalError::InvalidMarker {
-                    input: source.clone(),
-                    reason: format!("failed to encode optimized image: {error}"),
-                })?;
-        }
-
-        best_jpeg = encoded;
-        if best_jpeg.len() <= OPTIMIZED_IMAGE_TARGET_BYTES {
-            return Ok((best_jpeg, "image/jpeg".to_string()));
-        }
-    }
-
-    if best_jpeg.len() < bytes.len() {
-        return Ok((best_jpeg, "image/jpeg".to_string()));
-    }
-
-    Ok((bytes, mime))
+    Ok(format!("data:{mime};base64,{}", STANDARD.encode(bytes)))
 }
 
 fn validate_size(source: &str, size_bytes: usize, max_bytes: usize) -> anyhow::Result<()> {
@@ -485,11 +403,7 @@ fn detect_mime(
 
 fn normalize_content_type(content_type: &str) -> Option<String> {
     let mime = content_type.split(';').next()?.trim().to_ascii_lowercase();
-    if mime.is_empty() {
-        None
-    } else {
-        Some(mime)
-    }
+    if mime.is_empty() { None } else { Some(mime) }
 }
 
 fn mime_from_extension(ext: &str) -> Option<&'static str> {
@@ -591,15 +505,18 @@ mod tests {
             max_images: 1,
             max_image_size_mb: 5,
             allow_remote_fetch: false,
+            ..Default::default()
         };
 
         let error = prepare_messages_for_provider(&messages, &config)
             .await
             .expect_err("should reject image count overflow");
 
-        assert!(error
-            .to_string()
-            .contains("multimodal image limit exceeded"));
+        assert!(
+            error
+                .to_string()
+                .contains("multimodal image limit exceeded")
+        );
     }
 
     #[tokio::test]
@@ -612,9 +529,11 @@ mod tests {
             .await
             .expect_err("should reject remote image URL when fetch is disabled");
 
-        assert!(error
-            .to_string()
-            .contains("multimodal remote image fetch is disabled"));
+        assert!(
+            error
+                .to_string()
+                .contains("multimodal remote image fetch is disabled")
+        );
     }
 
     #[tokio::test]
@@ -633,52 +552,18 @@ mod tests {
             max_images: 4,
             max_image_size_mb: 1,
             allow_remote_fetch: false,
+            ..Default::default()
         };
 
         let error = prepare_messages_for_provider(&messages, &config)
             .await
             .expect_err("should reject oversized local image");
 
-        assert!(error
-            .to_string()
-            .contains("multimodal image size limit exceeded"));
-    }
-
-    #[tokio::test]
-    async fn normalize_data_uri_downscales_large_images_for_prompt_budget() {
-        let mut image = image::RgbImage::new(1800, 1200);
-        for (x, y, pixel) in image.enumerate_pixels_mut() {
-            *pixel = image::Rgb([(x % 251) as u8, (y % 241) as u8, ((x + y) % 239) as u8]);
-        }
-
-        let mut png_bytes = Vec::new();
-        image::DynamicImage::ImageRgb8(image)
-            .write_to(
-                &mut std::io::Cursor::new(&mut png_bytes),
-                image::ImageFormat::Png,
-            )
-            .unwrap();
-        let original_size = png_bytes.len();
-
-        let source = format!("data:image/png;base64,{}", STANDARD.encode(&png_bytes));
-        let optimized = normalize_data_uri(&source, 5 * 1024 * 1024)
-            .await
-            .expect("data uri should normalize");
-        assert!(optimized.starts_with("data:image/jpeg;base64,"));
-
-        let payload = optimized
-            .split_once(',')
-            .map(|(_, payload)| payload)
-            .expect("optimized data URI payload");
-        let optimized_bytes = STANDARD.decode(payload).expect("base64 decode");
         assert!(
-            optimized_bytes.len() < original_size,
-            "optimized bytes should be smaller than original PNG payload"
+            error
+                .to_string()
+                .contains("multimodal image size limit exceeded")
         );
-
-        let optimized_image = image::load_from_memory(&optimized_bytes).expect("decode optimized");
-        assert!(optimized_image.width() <= OPTIMIZED_IMAGE_MAX_DIMENSION);
-        assert!(optimized_image.height() <= OPTIMIZED_IMAGE_MAX_DIMENSION);
     }
 
     #[test]
@@ -686,5 +571,29 @@ mod tests {
         let payload = extract_ollama_image_payload("data:image/png;base64,abcd==")
             .expect("payload should be extracted");
         assert_eq!(payload, "abcd==");
+    }
+
+    /// Stripping `[IMAGE:]` markers from history messages leaves only the text
+    /// portion, which is the behaviour needed for non-vision providers (#3674).
+    #[test]
+    fn parse_image_markers_strips_markers_leaving_caption() {
+        let input = "[IMAGE:/tmp/photo.jpg]\n\nDescribe this screenshot";
+        let (cleaned, refs) = parse_image_markers(input);
+        assert_eq!(cleaned, "Describe this screenshot");
+        assert_eq!(refs.len(), 1);
+        assert_eq!(refs[0], "/tmp/photo.jpg");
+    }
+
+    /// An image-only message (no caption) should produce an empty string after
+    /// marker stripping, so callers can drop it from history.
+    #[test]
+    fn parse_image_markers_image_only_message_becomes_empty() {
+        let input = "[IMAGE:/tmp/photo.jpg]";
+        let (cleaned, refs) = parse_image_markers(input);
+        assert!(
+            cleaned.is_empty(),
+            "expected empty string, got: {cleaned:?}"
+        );
+        assert_eq!(refs.len(), 1);
     }
 }

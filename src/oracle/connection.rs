@@ -98,8 +98,6 @@ impl OracleConnectionManager {
 
     /// Check if the connection is alive.
     pub fn ping(&self) -> bool {
-        self.conn
-            .lock()
-            .map_or(false, |conn| conn.ping().is_ok())
+        self.conn.lock().map_or(false, |conn| conn.ping().is_ok())
     }
 }

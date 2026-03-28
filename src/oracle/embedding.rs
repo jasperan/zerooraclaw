@@ -60,8 +60,10 @@ impl OracleEmbedding {
                 .map_err(|e| anyhow::anyhow!("Connection lock poisoned: {e}"))?;
 
             if let Some((schema, name)) = model.split_once('.') {
-                let sql = "SELECT COUNT(*) FROM ALL_MINING_MODELS WHERE OWNER = :1 AND MODEL_NAME = :2";
-                let row = guard.query_row_as::<i64>(sql, &[&schema.to_uppercase(), &name.to_uppercase()])?;
+                let sql =
+                    "SELECT COUNT(*) FROM ALL_MINING_MODELS WHERE OWNER = :1 AND MODEL_NAME = :2";
+                let row = guard
+                    .query_row_as::<i64>(sql, &[&schema.to_uppercase(), &name.to_uppercase()])?;
                 Ok(row > 0)
             } else {
                 let sql = "SELECT COUNT(*) FROM USER_MINING_MODELS WHERE MODEL_NAME = :1";
@@ -76,7 +78,11 @@ impl OracleEmbedding {
     ///
     /// The SQL uses `VECTOR_EMBEDDING(<model> USING :1 AS DATA)` which
     /// returns the vector as a string like `[0.123, -0.456, ...]`.
-    fn embed_text_sync(conn: &Connection, model_name: &str, text: &str) -> anyhow::Result<Vec<f32>> {
+    fn embed_text_sync(
+        conn: &Connection,
+        model_name: &str,
+        text: &str,
+    ) -> anyhow::Result<Vec<f32>> {
         // Oracle 23ai: use VECTOR_SERIALIZE(... RETURNING CLOB) to serialize the vector.
         let sql = format!(
             "SELECT VECTOR_SERIALIZE(VECTOR_EMBEDDING({model_name} USING :1 AS DATA) RETURNING CLOB) FROM DUAL"
@@ -139,11 +145,7 @@ impl EmbeddingProvider for OracleEmbedding {
             let mut embeddings = Vec::with_capacity(owned_texts.len());
             for text in &owned_texts {
                 let vec = Self::embed_text_sync(&guard, &model, text)?;
-                debug!(
-                    "Embedded text ({} chars) -> {} dims",
-                    text.len(),
-                    vec.len()
-                );
+                debug!("Embedded text ({} chars) -> {} dims", text.len(), vec.len());
                 embeddings.push(vec);
             }
             Ok(embeddings)

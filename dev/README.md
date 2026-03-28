@@ -65,12 +65,12 @@ Use this to act as the "user" or "environment" the agent interacts with.
 
 ### 5. Persistence & Shared Workspace
 
-The local `playground/` directory (in repo root) is mounted as the shared workspace:
+The `playground/` directory (in repo root) is mounted as the shared workspace:
 
 - **Agent**: `/zeroclaw-data/workspace`
 - **Sandbox**: `/home/developer/workspace`
 
-Files created by the agent are visible to the sandbox user, and vice versa.
+Files created by the agent are visible to the sandbox user, and vice versa. The directory is git-ignored and auto-populated on first run — the agent creates `brain.db`, `sessions.db`, personality files (`IDENTITY.md`, `SOUL.md`), and hygiene state automatically.
 
 The agent configuration lives in `target/.zeroclaw` (mounted to `/zeroclaw-data/.zeroclaw`), so settings persist across container rebuilds.
 
@@ -82,43 +82,7 @@ Stop containers and remove volumes and generated config:
 ./dev/cli.sh clean
 ```
 
-**Note:** This removes `target/.zeroclaw` (config/DB) but leaves the `playground/` directory intact. To fully wipe everything, manually delete `playground/`.
-
-## WASM Security Profiles
-
-If you run `runtime.kind = "wasm"`, prebuilt baseline templates are available:
-
-- `dev/config.wasm.dev.toml`
-- `dev/config.wasm.staging.toml`
-- `dev/config.wasm.prod.toml`
-
-Recommended path:
-
-1. Start with `dev` for module integration (`capability_escalation_mode = "clamp"`).
-2. Move to `staging` and fix denied escalation paths.
-3. Pin module digests with `runtime.wasm.security.module_sha256`.
-4. Promote to `prod` with minimal permissions.
-5. Set `runtime.wasm.security.module_hash_policy = "enforce"` after all module pins are in place.
-
-Example apply flow:
-
-```bash
-cp dev/config.wasm.staging.toml target/.zeroclaw/config.toml
-```
-
-Example SHA-256 pin generation:
-
-```bash
-sha256sum tools/wasm/*.wasm
-```
-
-Then copy each digest into:
-
-```toml
-[runtime.wasm.security.module_sha256]
-calc = "<64-char sha256>"
-formatter = "<64-char sha256>"
-```
+**Note:** This removes `target/.zeroclaw` (config/DB) but leaves the `playground/` directory intact. To fully wipe workspace data, manually delete `playground/`.
 
 ## Local CI/CD (Docker-Only)
 

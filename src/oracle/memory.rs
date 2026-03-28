@@ -12,6 +12,7 @@ use crate::memory::traits::{Memory, MemoryCategory, MemoryEntry};
 use crate::oracle::vector::similarity_from_distance;
 use async_trait::async_trait;
 use oracle::Connection;
+use std::fmt::Write as _;
 use std::sync::{Arc, Mutex};
 use tracing::{debug, warn};
 use uuid::Uuid;
@@ -37,11 +38,7 @@ impl OracleMemory {
     /// * `conn` — shared connection from `OracleConnectionManager::conn()`
     /// * `agent_id` — agent identifier for data isolation
     /// * `model_name` — ONNX model name for in-database VECTOR_EMBEDDING()
-    pub fn new(
-        conn: Arc<Mutex<Connection>>,
-        agent_id: &str,
-        model_name: &str,
-    ) -> Self {
+    pub fn new(conn: Arc<Mutex<Connection>>, agent_id: &str, model_name: &str) -> Self {
         Self {
             conn,
             agent_id: agent_id.to_string(),
@@ -67,7 +64,7 @@ fn parse_category(s: &str) -> MemoryCategory {
 /// Map a query row to a `MemoryEntry`.
 ///
 /// Expected column order: memory_id, key, content, category, created_at, session_id
-fn row_to_entry(row: &oracle::Row) -> anyhow::Result<MemoryEntry> {
+fn row_to_entry(row: &oracle::Row, namespace: &str) -> anyhow::Result<MemoryEntry> {
     let id: String = row.get(0)?;
     let key: String = row.get(1)?;
     let content: String = row.get(2)?;
@@ -83,6 +80,9 @@ fn row_to_entry(row: &oracle::Row) -> anyhow::Result<MemoryEntry> {
         timestamp: ts,
         session_id,
         score: None,
+        namespace: namespace.to_string(),
+        importance: None,
+        superseded_by: None,
     })
 }
 
@@ -163,11 +163,15 @@ impl Memory for OracleMemory {
         query: &str,
         limit: usize,
         session_id: Option<&str>,
+        since: Option<&str>,
+        until: Option<&str>,
     ) -> anyhow::Result<Vec<MemoryEntry>> {
         let conn = self.conn.clone();
         let agent_id = self.agent_id.clone();
         let query_str = query.to_string();
         let session_id = session_id.map(|s| s.to_string());
+        let since = since.map(|s| s.to_string());
+        let until = until.map(|s| s.to_string());
         let limit_i64 = limit as i64;
         let model = self.model_name.clone();
 
@@ -250,6 +254,9 @@ impl Memory for OracleMemory {
                         timestamp: ts,
                         session_id: sid,
                         score: Some(similarity),
+                        namespace: agent_id.clone(),
+                        importance: None,
+                        superseded_by: None,
                     });
                 }
                 Ok(())
@@ -320,7 +327,7 @@ impl Memory for OracleMemory {
                 let rows = guard.query(&sql, param_refs.as_slice())?;
                 for row_result in rows {
                     let row = row_result?;
-                    let mut entry = row_to_entry(&row)?;
+                    let mut entry = row_to_entry(&row, &agent_id)?;
                     entry.score = Some(0.5);
                     entries.push(entry);
                 }
@@ -331,6 +338,13 @@ impl Memory for OracleMemory {
                         entries.len()
                     );
                 }
+            }
+
+            if let Some(ref since_value) = since {
+                entries.retain(|entry| entry.timestamp.as_str() >= since_value.as_str());
+            }
+            if let Some(ref until_value) = until {
+                entries.retain(|entry| entry.timestamp.as_str() <= until_value.as_str());
             }
 
             Ok(entries)
@@ -359,7 +373,7 @@ impl Memory for OracleMemory {
             let result = guard.query_row(sql, &[&key, &agent_id]);
             match result {
                 Ok(row) => {
-                    let entry = row_to_entry(&row)?;
+                    let entry = row_to_entry(&row, &agent_id)?;
 
                     // Bump access count (best-effort, don't fail the read)
                     let _ = guard.execute(
@@ -405,12 +419,12 @@ impl Memory for OracleMemory {
                 vec![Box::new(agent_id.clone())];
 
             if let Some(ref cat) = cat_str {
-                sql.push_str(&format!(" AND category = :{}", params.len() + 1));
+                let _ = write!(sql, " AND category = :{}", params.len() + 1);
                 params.push(Box::new(cat.clone()));
             }
 
             if let Some(ref sid) = session_id {
-                sql.push_str(&format!(" AND session_id = :{}", params.len() + 1));
+                let _ = write!(sql, " AND session_id = :{}", params.len() + 1);
                 params.push(Box::new(sid.clone()));
             }
 
@@ -423,7 +437,7 @@ impl Memory for OracleMemory {
             let mut entries = Vec::new();
             for row_result in rows {
                 let row = row_result?;
-                entries.push(row_to_entry(&row)?);
+                entries.push(row_to_entry(&row, &agent_id)?);
             }
 
             Ok(entries)
@@ -471,7 +485,8 @@ impl Memory for OracleMemory {
                 &[&agent_id],
             )?;
 
-            Ok(count as usize)
+            usize::try_from(count)
+                .map_err(|_| anyhow::anyhow!("Memory count out of range: {count}"))
         })
         .await?
     }
@@ -479,11 +494,9 @@ impl Memory for OracleMemory {
     async fn health_check(&self) -> bool {
         let conn = self.conn.clone();
 
-        tokio::task::spawn_blocking(move || {
-            conn.lock().map_or(false, |guard| guard.ping().is_ok())
-        })
-        .await
-        .unwrap_or(false)
+        tokio::task::spawn_blocking(move || conn.lock().map_or(false, |guard| guard.ping().is_ok()))
+            .await
+            .unwrap_or(false)
     }
 }
 
@@ -520,7 +533,8 @@ mod tests {
 
     #[test]
     fn min_similarity_threshold_is_reasonable() {
-        assert!(MIN_SIMILARITY > 0.0);
-        assert!(MIN_SIMILARITY < 1.0);
+        let threshold = std::hint::black_box(MIN_SIMILARITY);
+        assert!(threshold > 0.0);
+        assert!(threshold < 1.0);
     }
 }

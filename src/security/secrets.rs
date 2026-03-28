@@ -24,7 +24,6 @@ use anyhow::{Context, Result};
 use chacha20poly1305::aead::{Aead, KeyInit, OsRng};
 use chacha20poly1305::{AeadCore, ChaCha20Poly1305, Key, Nonce};
 use std::fs;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 
 /// Length of the random encryption key in bytes (256-bit, matches `ChaCha20`).
@@ -179,46 +178,27 @@ impl SecretStore {
             if let Some(parent) = self.key_path.parent() {
                 fs::create_dir_all(parent)?;
             }
+            fs::write(&self.key_path, hex_encode(&key))
+                .context("Failed to write secret key file")?;
 
-            let key_hex = hex_encode(&key);
-            match fs::OpenOptions::new()
-                .create_new(true)
-                .write(true)
-                .open(&self.key_path)
+            // Set restrictive permissions
+            #[cfg(unix)]
             {
-                Ok(mut key_file) => {
-                    // Set restrictive permissions before writing key bytes.
-                    #[cfg(unix)]
-                    {
-                        use std::os::unix::fs::PermissionsExt;
-                        key_file
-                            .set_permissions(fs::Permissions::from_mode(0o600))
-                            .context("Failed to set key file permissions")?;
-                    }
-
-                    key_file
-                        .write_all(key_hex.as_bytes())
-                        .context("Failed to write secret key file")?;
-                    key_file
-                        .sync_all()
-                        .context("Failed to fsync secret key file")?;
-                }
-                Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {
-                    // Concurrent creator won the race; read the existing key.
-                    let hex_key = fs::read_to_string(&self.key_path)
-                        .context("Failed to read concurrently created secret key file")?;
-                    return hex_decode(hex_key.trim())
-                        .context("Secret key file is corrupt after concurrent create");
-                }
-                Err(err) => {
-                    return Err(err).context("Failed to create secret key file");
-                }
+                use std::os::unix::fs::PermissionsExt;
+                fs::set_permissions(&self.key_path, fs::Permissions::from_mode(0o600))
+                    .context("Failed to set key file permissions")?;
             }
-
             #[cfg(windows)]
             {
                 // On Windows, use icacls to restrict permissions to current user only
-                let username = std::env::var("USERNAME").unwrap_or_default();
+                // Use whoami command to get full user identity (COMPUTER\User or DOMAIN\User)
+                // which is required by icacls for correct parsing
+                let username = std::process::Command::new("whoami")
+                    .output()
+                    .ok()
+                    .filter(|o| o.status.success())
+                    .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+                    .unwrap_or_else(|| std::env::var("USERNAME").unwrap_or_default());
                 let Some(grant_arg) = build_windows_icacls_grant_arg(&username) else {
                     tracing::warn!(
                         "USERNAME environment variable is empty; \
@@ -226,6 +206,28 @@ impl SecretStore {
                     );
                     return Ok(key);
                 };
+
+                // First, ensure the current user owns the file. Without this,
+                // Windows may assign an invalid SID as owner, making the file
+                // unreadable for subsequent commands. (See issue #4532.)
+                match std::process::Command::new("takeown")
+                    .arg("/F")
+                    .arg(&self.key_path)
+                    .output()
+                {
+                    Ok(o) if !o.status.success() => {
+                        tracing::warn!(
+                            "Failed to take ownership of key file via takeown (exit code {:?})",
+                            o.status.code()
+                        );
+                    }
+                    Err(e) => {
+                        tracing::warn!("Could not take ownership of key file: {e}");
+                    }
+                    _ => {
+                        tracing::debug!("Key file ownership set to current user via takeown");
+                    }
+                }
 
                 match std::process::Command::new("icacls")
                     .arg(&self.key_path)
@@ -873,6 +875,29 @@ mod tests {
             perms.mode() & 0o777,
             0o600,
             "Key file must be owner-only (0600)"
+        );
+    }
+
+    /// Document the expected ordering on Windows: `takeown` runs before `icacls`.
+    ///
+    /// Without `takeown`, the file owner may be an invalid SID, causing `icacls`
+    /// grants to succeed against an unowned file that later becomes unreadable.
+    /// This test verifies the code structure expectation (see issue #4532).
+    #[test]
+    fn takeown_runs_before_icacls_on_windows() {
+        // Read the source to confirm `takeown` appears before `icacls` in the
+        // Windows cfg block of `load_or_create_key`. This is a structural
+        // documentation test — the actual commands are Windows-only.
+        let source = include_str!("secrets.rs");
+        let takeown_pos = source
+            .find("Command::new(\"takeown\")")
+            .expect("takeown call must exist in secrets.rs");
+        let icacls_pos = source
+            .find("Command::new(\"icacls\")")
+            .expect("icacls call must exist in secrets.rs");
+        assert!(
+            takeown_pos < icacls_pos,
+            "takeown must run before icacls to fix file ownership first (issue #4532)"
         );
     }
 }
