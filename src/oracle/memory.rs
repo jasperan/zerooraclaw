@@ -12,6 +12,7 @@ use crate::memory::traits::{Memory, MemoryCategory, MemoryEntry};
 use crate::oracle::vector::similarity_from_distance;
 use async_trait::async_trait;
 use oracle::Connection;
+use std::fmt::Write as _;
 use std::sync::{Arc, Mutex};
 use tracing::{debug, warn};
 use uuid::Uuid;
@@ -418,12 +419,12 @@ impl Memory for OracleMemory {
                 vec![Box::new(agent_id.clone())];
 
             if let Some(ref cat) = cat_str {
-                sql.push_str(&format!(" AND category = :{}", params.len() + 1));
+                let _ = write!(sql, " AND category = :{}", params.len() + 1);
                 params.push(Box::new(cat.clone()));
             }
 
             if let Some(ref sid) = session_id {
-                sql.push_str(&format!(" AND session_id = :{}", params.len() + 1));
+                let _ = write!(sql, " AND session_id = :{}", params.len() + 1);
                 params.push(Box::new(sid.clone()));
             }
 
@@ -484,7 +485,8 @@ impl Memory for OracleMemory {
                 &[&agent_id],
             )?;
 
-            Ok(count as usize)
+            usize::try_from(count)
+                .map_err(|_| anyhow::anyhow!("Memory count out of range: {count}"))
         })
         .await?
     }
@@ -531,7 +533,8 @@ mod tests {
 
     #[test]
     fn min_similarity_threshold_is_reasonable() {
-        assert!(MIN_SIMILARITY > 0.0);
-        assert!(MIN_SIMILARITY < 1.0);
+        let threshold = std::hint::black_box(MIN_SIMILARITY);
+        assert!(threshold > 0.0);
+        assert!(threshold < 1.0);
     }
 }

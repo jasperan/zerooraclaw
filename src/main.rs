@@ -1868,10 +1868,7 @@ async fn handle_oracle_inspect(config: &Config, table: &str, search: Option<&str
             let mut results = Vec::new();
             for t in &tables {
                 let sql = format!("SELECT COUNT(*) FROM {} WHERE agent_id = :1", t.table_name);
-                let count: i64 = match guard.query_row_as(&sql, &[&agent_id]) {
-                    Ok(c) => c,
-                    Err(_) => -1,
-                };
+                let count: i64 = guard.query_row_as(&sql, &[&agent_id]).unwrap_or(-1);
                 results.push((t.name, count));
             }
             Ok(results)
