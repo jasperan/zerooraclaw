@@ -58,3 +58,16 @@ playground/
 
 # Temporary rustc output
 rust_out
+
+# Local agent artifacts
+.pi/
+.agents/
+.serena/
+.crush/
+.openhands/
+docs/plans/
+.playwright-mcp/
+content/
+task_plan.md
+findings.md
+progress.md

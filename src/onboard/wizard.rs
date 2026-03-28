@@ -125,7 +125,7 @@ pub async fn run_wizard(force: bool) -> Result<Config> {
     scaffold_workspace(&workspace_dir, &project_ctx, &memory_config.backend).await?;
 
     // ── Build config ──
-    // Defaults: SQLite memory, supervised autonomy, workspace-scoped, native runtime
+    // Defaults: Oracle memory, supervised autonomy, workspace-scoped, native runtime
     let config = Config {
         workspace_dir: workspace_dir.clone(),
         config_path: config_path.clone(),
@@ -213,6 +213,7 @@ pub async fn run_wizard(force: bool) -> Result<Config> {
         opencode_cli: crate::config::OpenCodeCliConfig::default(),
         sop: crate::config::SopConfig::default(),
         shell_tool: crate::config::ShellToolConfig::default(),
+        oracle: crate::config::OracleConfig::default(),
     };
 
     println!(
@@ -398,7 +399,7 @@ fn apply_provider_update(
 // ── Quick setup (zero prompts) ───────────────────────────────────
 
 /// Non-interactive setup: generates a sensible default config instantly.
-/// Use `zeroclaw onboard` or `zeroclaw onboard --api-key sk-... --provider openrouter --memory sqlite|lucid`.
+/// Use `zeroclaw onboard` or `zeroclaw onboard --api-key sk-... --provider openrouter --memory oracle|sqlite|lucid`.
 fn backend_key_from_choice(choice: usize) -> &'static str {
     selectable_memory_backends()
         .get(choice)
@@ -660,6 +661,7 @@ async fn run_quick_setup_with_home(
         opencode_cli: crate::config::OpenCodeCliConfig::default(),
         sop: crate::config::SopConfig::default(),
         shell_tool: crate::config::ShellToolConfig::default(),
+        oracle: crate::config::OracleConfig::default(),
     };
 
     config.save().await?;
@@ -7530,11 +7532,12 @@ mod tests {
 
     #[test]
     fn backend_key_from_choice_maps_supported_backends() {
-        assert_eq!(backend_key_from_choice(0), "sqlite");
-        assert_eq!(backend_key_from_choice(1), "lucid");
-        assert_eq!(backend_key_from_choice(2), "markdown");
-        assert_eq!(backend_key_from_choice(3), "none");
-        assert_eq!(backend_key_from_choice(999), "sqlite");
+        assert_eq!(backend_key_from_choice(0), "oracle");
+        assert_eq!(backend_key_from_choice(1), "sqlite");
+        assert_eq!(backend_key_from_choice(2), "lucid");
+        assert_eq!(backend_key_from_choice(3), "markdown");
+        assert_eq!(backend_key_from_choice(4), "none");
+        assert_eq!(backend_key_from_choice(999), "oracle");
     }
 
     #[test]

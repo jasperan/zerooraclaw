@@ -1,5 +1,6 @@
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum MemoryBackendKind {
+    Oracle,
     Sqlite,
     Lucid,
     Qdrant,
@@ -19,9 +20,18 @@ pub struct MemoryBackendProfile {
     pub optional_dependency: bool,
 }
 
+const ORACLE_PROFILE: MemoryBackendProfile = MemoryBackendProfile {
+    key: "oracle",
+    label: "Oracle AI Database (recommended for ZeroOraClaw) — in-database embeddings and persistent agent memory",
+    auto_save_default: true,
+    uses_sqlite_hygiene: false,
+    sqlite_based: false,
+    optional_dependency: false,
+};
+
 const SQLITE_PROFILE: MemoryBackendProfile = MemoryBackendProfile {
     key: "sqlite",
-    label: "SQLite with Vector Search (recommended) — fast, hybrid search, embeddings",
+    label: "SQLite with Vector Search — fast, hybrid search, embeddings",
     auto_save_default: true,
     uses_sqlite_hygiene: true,
     sqlite_based: true,
@@ -73,7 +83,8 @@ const CUSTOM_PROFILE: MemoryBackendProfile = MemoryBackendProfile {
     optional_dependency: false,
 };
 
-const SELECTABLE_MEMORY_BACKENDS: [MemoryBackendProfile; 4] = [
+const SELECTABLE_MEMORY_BACKENDS: [MemoryBackendProfile; 5] = [
+    ORACLE_PROFILE,
     SQLITE_PROFILE,
     LUCID_PROFILE,
     MARKDOWN_PROFILE,
@@ -85,11 +96,12 @@ pub fn selectable_memory_backends() -> &'static [MemoryBackendProfile] {
 }
 
 pub fn default_memory_backend_key() -> &'static str {
-    SQLITE_PROFILE.key
+    ORACLE_PROFILE.key
 }
 
 pub fn classify_memory_backend(backend: &str) -> MemoryBackendKind {
     match backend {
+        "oracle" => MemoryBackendKind::Oracle,
         "sqlite" => MemoryBackendKind::Sqlite,
         "lucid" => MemoryBackendKind::Lucid,
         "qdrant" => MemoryBackendKind::Qdrant,
@@ -101,6 +113,7 @@ pub fn classify_memory_backend(backend: &str) -> MemoryBackendKind {
 
 pub fn memory_backend_profile(backend: &str) -> MemoryBackendProfile {
     match classify_memory_backend(backend) {
+        MemoryBackendKind::Oracle => ORACLE_PROFILE,
         MemoryBackendKind::Sqlite => SQLITE_PROFILE,
         MemoryBackendKind::Lucid => LUCID_PROFILE,
         MemoryBackendKind::Qdrant => QDRANT_PROFILE,
@@ -116,6 +129,7 @@ mod tests {
 
     #[test]
     fn classify_known_backends() {
+        assert_eq!(classify_memory_backend("oracle"), MemoryBackendKind::Oracle);
         assert_eq!(classify_memory_backend("sqlite"), MemoryBackendKind::Sqlite);
         assert_eq!(classify_memory_backend("lucid"), MemoryBackendKind::Lucid);
         assert_eq!(
@@ -133,11 +147,12 @@ mod tests {
     #[test]
     fn selectable_backends_are_ordered_for_onboarding() {
         let backends = selectable_memory_backends();
-        assert_eq!(backends.len(), 4);
-        assert_eq!(backends[0].key, "sqlite");
-        assert_eq!(backends[1].key, "lucid");
-        assert_eq!(backends[2].key, "markdown");
-        assert_eq!(backends[3].key, "none");
+        assert_eq!(backends.len(), 5);
+        assert_eq!(backends[0].key, "oracle");
+        assert_eq!(backends[1].key, "sqlite");
+        assert_eq!(backends[2].key, "lucid");
+        assert_eq!(backends[3].key, "markdown");
+        assert_eq!(backends[4].key, "none");
     }
 
     #[test]
