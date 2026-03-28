@@ -166,6 +166,7 @@ pub async fn run_wizard(force: bool) -> Result<Config> {
         channels_config,
         memory: memory_config, // User-selected memory backend
         storage: StorageConfig::default(),
+        oracle: crate::config::OracleConfig::default(),
         tunnel: tunnel_config,
         gateway: crate::config::GatewayConfig::default(),
         composio: composio_config,
@@ -613,6 +614,7 @@ async fn run_quick_setup_with_home(
         channels_config: ChannelsConfig::default(),
         memory: memory_config,
         storage: StorageConfig::default(),
+        oracle: crate::config::OracleConfig::default(),
         tunnel: crate::config::TunnelConfig::default(),
         gateway: crate::config::GatewayConfig::default(),
         composio: ComposioConfig::default(),
@@ -7530,11 +7532,12 @@ mod tests {
 
     #[test]
     fn backend_key_from_choice_maps_supported_backends() {
-        assert_eq!(backend_key_from_choice(0), "sqlite");
-        assert_eq!(backend_key_from_choice(1), "lucid");
-        assert_eq!(backend_key_from_choice(2), "markdown");
-        assert_eq!(backend_key_from_choice(3), "none");
-        assert_eq!(backend_key_from_choice(999), "sqlite");
+        assert_eq!(backend_key_from_choice(0), "oracle");
+        assert_eq!(backend_key_from_choice(1), "sqlite");
+        assert_eq!(backend_key_from_choice(2), "lucid");
+        assert_eq!(backend_key_from_choice(3), "markdown");
+        assert_eq!(backend_key_from_choice(4), "none");
+        assert_eq!(backend_key_from_choice(999), "oracle");
     }
 
     #[test]
@@ -7556,6 +7559,17 @@ mod tests {
         let custom = memory_backend_profile("custom-memory");
         assert!(custom.auto_save_default);
         assert!(!custom.uses_sqlite_hygiene);
+    }
+
+    #[test]
+    fn memory_config_defaults_for_oracle_disable_sqlite_hygiene() {
+        let config = memory_config_defaults_for_backend("oracle");
+        assert_eq!(config.backend, "oracle");
+        assert!(config.auto_save);
+        assert!(!config.hygiene_enabled);
+        assert_eq!(config.archive_after_days, 0);
+        assert_eq!(config.purge_after_days, 0);
+        assert_eq!(config.embedding_cache_size, 0);
     }
 
     #[test]

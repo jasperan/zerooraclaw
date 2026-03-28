@@ -45,7 +45,8 @@ pub use traits::Memory;
 #[allow(unused_imports)]
 pub use traits::{ExportFilter, MemoryCategory, MemoryEntry, ProceduralMessage};
 
-use crate::config::{EmbeddingRouteConfig, MemoryConfig, StorageProviderConfig};
+use crate::config::{EmbeddingRouteConfig, MemoryConfig, OracleConfig, StorageProviderConfig};
+use crate::oracle::{OracleConnectionManager, OracleMemory};
 use anyhow::Context;
 use std::path::Path;
 use std::sync::Arc;
@@ -60,6 +61,9 @@ where
     F: FnMut() -> anyhow::Result<SqliteMemory>,
 {
     match classify_memory_backend(backend_name) {
+        MemoryBackendKind::Oracle => anyhow::bail!(
+            "oracle backend requires Oracle config and must be created through create_oracle_memory_from_config"
+        ),
         MemoryBackendKind::Sqlite => Ok(Box::new(sqlite_builder()?)),
         MemoryBackendKind::Lucid => {
             let local = sqlite_builder()?;
@@ -76,6 +80,76 @@ where
             Ok(Box::new(MarkdownMemory::new(workspace_dir)))
         }
     }
+}
+
+pub fn create_oracle_memory(
+    conn_manager: &OracleConnectionManager,
+) -> anyhow::Result<Box<dyn Memory>> {
+    Ok(Box::new(OracleMemory::new(
+        conn_manager.conn(),
+        conn_manager.agent_id(),
+        conn_manager.onnx_model(),
+    )))
+}
+
+pub fn create_oracle_memory_from_config(
+    oracle_config: &OracleConfig,
+) -> anyhow::Result<Box<dyn Memory>> {
+    let mgr = OracleConnectionManager::new(oracle_config)?;
+
+    {
+        let conn = mgr.conn();
+        let guard = conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Connection lock poisoned: {e}"))?;
+        crate::oracle::schema::init_schema(&guard, mgr.agent_id())?;
+    }
+
+    create_oracle_memory(&mgr)
+}
+
+fn resolve_oracle_config() -> anyhow::Result<OracleConfig> {
+    let mut cfg = OracleConfig::default();
+
+    if let Ok(host) = std::env::var("ZEROORACLAW_ORACLE_HOST") {
+        cfg.host = host;
+    }
+    if let Ok(port) = std::env::var("ZEROORACLAW_ORACLE_PORT")
+        && let Ok(parsed) = port.parse::<u16>()
+    {
+        cfg.port = parsed;
+    }
+    if let Ok(service) = std::env::var("ZEROORACLAW_ORACLE_SERVICE") {
+        cfg.service = service;
+    }
+    if let Ok(user) = std::env::var("ZEROORACLAW_ORACLE_USER") {
+        cfg.user = user;
+    }
+    if let Ok(password) = std::env::var("ZEROORACLAW_ORACLE_PASSWORD") {
+        cfg.password = password;
+    }
+    if let Ok(mode) = std::env::var("ZEROORACLAW_ORACLE_MODE") {
+        cfg.mode = mode;
+    }
+    if let Ok(dsn) = std::env::var("ZEROORACLAW_ORACLE_DSN") {
+        cfg.dsn = Some(dsn);
+    }
+    if let Ok(wallet_path) = std::env::var("ZEROORACLAW_ORACLE_WALLET_PATH") {
+        cfg.wallet_path = Some(wallet_path);
+    }
+    if let Ok(model) = std::env::var("ZEROORACLAW_ORACLE_ONNX_MODEL") {
+        cfg.onnx_model = model;
+    }
+    if let Ok(agent_id) = std::env::var("ZEROORACLAW_ORACLE_AGENT_ID") {
+        cfg.agent_id = agent_id;
+    }
+    if let Ok(max_connections) = std::env::var("ZEROORACLAW_ORACLE_MAX_CONNECTIONS")
+        && let Ok(parsed) = max_connections.parse::<u32>()
+    {
+        cfg.max_connections = parsed;
+    }
+
+    Ok(cfg)
 }
 
 pub fn effective_memory_backend_name(
@@ -244,6 +318,12 @@ pub fn create_memory_with_storage_and_routes(
 ) -> anyhow::Result<Box<dyn Memory>> {
     let backend_name = effective_memory_backend_name(&config.backend, storage_provider);
     let backend_kind = classify_memory_backend(&backend_name);
+
+    if matches!(backend_kind, MemoryBackendKind::Oracle) {
+        let oracle_config = resolve_oracle_config()?;
+        return create_oracle_memory_from_config(&oracle_config);
+    }
+
     let resolved_embedding = resolve_embedding_config(config, embedding_routes, api_key);
 
     // Best-effort memory hygiene/retention pass (throttled by state file).
@@ -365,18 +445,21 @@ pub fn create_memory_for_migration(
     backend: &str,
     workspace_dir: &Path,
 ) -> anyhow::Result<Box<dyn Memory>> {
-    if matches!(classify_memory_backend(backend), MemoryBackendKind::None) {
-        anyhow::bail!(
-            "memory backend 'none' disables persistence; choose sqlite, lucid, or markdown before migration"
-        );
+    match classify_memory_backend(backend) {
+        MemoryBackendKind::Oracle => {
+            let oracle_config = resolve_oracle_config()?;
+            create_oracle_memory_from_config(&oracle_config)
+        }
+        MemoryBackendKind::None => anyhow::bail!(
+            "memory backend 'none' disables persistence; choose oracle, sqlite, lucid, or markdown before migration"
+        ),
+        _ => create_memory_with_builders(
+            backend,
+            workspace_dir,
+            || SqliteMemory::new(workspace_dir),
+            " during migration",
+        ),
     }
-
-    create_memory_with_builders(
-        backend,
-        workspace_dir,
-        || SqliteMemory::new(workspace_dir),
-        " during migration",
-    )
 }
 
 /// Factory: create an optional response cache from config.

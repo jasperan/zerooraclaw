@@ -3,13 +3,13 @@ members = [".", "crates/robot-kit", "crates/aardvark-sys", "apps/tauri"]
 resolver = "2"
 
 [package]
-name = "zeroclawlabs"
-version = "0.6.5"
+name = "zerooraclaw"
+version = "0.6.5-oracle.1"
 edition = "2024"
-authors = ["theonlyhennygod"]
+authors = ["jasperan"]
 license = "MIT OR Apache-2.0"
-description = "Zero overhead. Zero compromise. 100% Rust. The fastest, smallest AI assistant."
-repository = "https://github.com/zeroclaw-labs/zeroclaw"
+description = "Oracle AI Database-powered AI assistant. Zero overhead. Zero compromise. 100% Rust."
+repository = "https://github.com/jasperan/zerooraclaw"
 readme = "README.md"
 keywords = ["ai", "agent", "cli", "assistant", "chatbot"]
 categories = ["command-line-utilities", "api-bindings"]
@@ -26,7 +26,7 @@ include = [
 ]
 
 [[bin]]
-name = "zeroclaw"
+name = "zerooraclaw"
 path = "src/main.rs"
 
 [lib]
@@ -138,6 +138,7 @@ rusqlite = { version = "0.37", features = ["bundled"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std", "serde"] }
 chrono-tz = "0.10"
 cron = "0.15"
+oracle = { version = "0.6", features = ["chrono"] }
 
 # Interactive CLI prompts
 dialoguer = { version = "0.12", features = ["fuzzy-select"] }

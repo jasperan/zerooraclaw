@@ -49,7 +49,7 @@ fn parse_temperature(s: &str) -> std::result::Result<f64, String> {
 
 fn print_no_command_help() -> Result<()> {
     println!("No command provided.");
-    println!("Try `zeroclaw onboard` to initialize your workspace.");
+    println!("Try `zerooraclaw onboard` to initialize your workspace.");
     println!();
 
     let mut cmd = Cli::command();
@@ -60,6 +60,34 @@ fn print_no_command_help() -> Result<()> {
     pause_after_no_command_help();
 
     Ok(())
+}
+
+fn apply_oracle_env_from_config(config: &Config) {
+    // SAFETY: this runs during CLI startup, before the agent runtime or channel
+    // threads are launched. We only mirror config values into process env so the
+    // Oracle memory factory can read them through its existing env-based path.
+    unsafe {
+        std::env::set_var("ZEROORACLAW_ORACLE_MODE", &config.oracle.mode);
+        std::env::set_var("ZEROORACLAW_ORACLE_HOST", &config.oracle.host);
+        std::env::set_var("ZEROORACLAW_ORACLE_PORT", config.oracle.port.to_string());
+        std::env::set_var("ZEROORACLAW_ORACLE_SERVICE", &config.oracle.service);
+        std::env::set_var("ZEROORACLAW_ORACLE_USER", &config.oracle.user);
+        std::env::set_var("ZEROORACLAW_ORACLE_ONNX_MODEL", &config.oracle.onnx_model);
+        std::env::set_var("ZEROORACLAW_ORACLE_AGENT_ID", &config.oracle.agent_id);
+        std::env::set_var(
+            "ZEROORACLAW_ORACLE_MAX_CONNECTIONS",
+            config.oracle.max_connections.to_string(),
+        );
+        if let Some(dsn) = &config.oracle.dsn {
+            std::env::set_var("ZEROORACLAW_ORACLE_DSN", dsn);
+        }
+        if let Some(wallet_path) = &config.oracle.wallet_path {
+            std::env::set_var("ZEROORACLAW_ORACLE_WALLET_PATH", wallet_path);
+        }
+        if !config.oracle.password.is_empty() {
+            std::env::set_var("ZEROORACLAW_ORACLE_PASSWORD", &config.oracle.password);
+        }
+    }
 }
 
 #[cfg(windows)]
@@ -98,6 +126,7 @@ mod migration;
 mod multimodal;
 mod observability;
 mod onboard;
+mod oracle;
 mod peripherals;
 #[cfg(feature = "plugins-wasm")]
 mod plugins;
@@ -114,6 +143,7 @@ mod tunnel;
 mod util;
 mod verifiable_intent;
 
+use crate::memory::Memory as _;
 use config::Config;
 
 // Re-export so binary modules can use crate::<CommandEnum> while keeping a single source of truth.
@@ -150,7 +180,7 @@ enum EstopLevelArg {
 
 /// `ZeroClaw` - Zero overhead. Zero compromise. 100% Rust.
 #[derive(Parser, Debug)]
-#[command(name = "zeroclaw")]
+#[command(name = "zerooraclaw")]
 #[command(author = "theonlyhennygod")]
 #[command(version)]
 #[command(about = "The fastest, smallest AI assistant.", long_about = None)]
@@ -499,6 +529,40 @@ Examples:
     Config {
         #[command(subcommand)]
         config_command: ConfigCommands,
+    },
+
+    /// Initialize Oracle AI Database schema and ONNX model
+    #[command(long_about = "\
+Initialize the Oracle AI Database backend for ZeroOraClaw.
+
+Creates the 8 ZERO_* tables, regular indexes, and vector indexes. \
+Checks that the ONNX embedding model is loaded. Seeds system prompts \
+from workspace .md files (IDENTITY.md, SOUL.md, etc.).
+
+Examples:
+  zerooraclaw setup-oracle")]
+    SetupOracle,
+
+    /// Inspect Oracle AI Database contents
+    #[command(long_about = "\
+Inspect the Oracle AI Database backend.
+
+Shows row counts for all ZERO_* tables and optionally displays \
+sample rows from a specific table. Use --search with the memories \
+table to perform a vector similarity search.
+
+Examples:
+  zerooraclaw oracle-inspect
+  zerooraclaw oracle-inspect memories
+  zerooraclaw oracle-inspect sessions
+  zerooraclaw oracle-inspect memories --search 'user preferences'")]
+    OracleInspect {
+        /// Table to inspect: all, memories, sessions, state, prompts, notes, transcripts, config
+        #[arg(default_value = "all")]
+        table: String,
+        /// Semantic search query (for memories table)
+        #[arg(short, long)]
+        search: Option<String>,
     },
 
     /// Check for and apply updates
@@ -989,6 +1053,7 @@ async fn main() -> Result<()> {
     // All other commands need config loaded first
     let mut config = Box::pin(Config::load_or_init()).await?;
     config.apply_env_overrides();
+    apply_oracle_env_from_config(&config);
     observability::runtime_trace::init_from_config(&config.observability, &config.workspace_dir);
     if config.security.otp.enabled {
         let config_dir = config
@@ -1608,6 +1673,12 @@ async fn main() -> Result<()> {
             }
         },
 
+        Commands::SetupOracle => handle_setup_oracle(&config).await,
+
+        Commands::OracleInspect { table, search } => {
+            handle_oracle_inspect(&config, &table, search.as_deref()).await
+        }
+
         #[cfg(feature = "plugins-wasm")]
         Commands::Plugin { plugin_command } => match plugin_command {
             PluginCommands::List => {
@@ -1658,6 +1729,192 @@ async fn main() -> Result<()> {
             }
         },
     }
+}
+
+async fn handle_setup_oracle(config: &Config) -> Result<()> {
+    println!();
+    println!("  ZeroOraClaw Oracle Setup");
+    println!("  ========================");
+    println!();
+
+    println!("  Connecting to Oracle ({} mode)...", config.oracle.mode);
+    let mgr = tokio::task::spawn_blocking({
+        let oracle_config = config.oracle.clone();
+        move || oracle::OracleConnectionManager::new(&oracle_config)
+    })
+    .await??;
+    println!("  Connected.");
+
+    println!("  Initializing schema...");
+    let conn = mgr.conn();
+    let agent_id = mgr.agent_id().to_string();
+    tokio::task::spawn_blocking({
+        let conn = conn.clone();
+        let agent_id = agent_id.clone();
+        move || {
+            let guard = conn
+                .lock()
+                .map_err(|e| anyhow::anyhow!("Connection lock poisoned: {e}"))?;
+            oracle::schema::init_schema(&guard, &agent_id)
+        }
+    })
+    .await??;
+    println!("  Schema ready (8 ZERO_* tables + indexes).");
+
+    println!("  Checking ONNX embedding model '{}'...", mgr.onnx_model());
+    let embedding = oracle::OracleEmbedding::new(conn.clone(), mgr.onnx_model());
+    match embedding.check_onnx_model().await {
+        Ok(true) => println!("  ONNX model loaded and ready."),
+        Ok(false) => {
+            println!(
+                "  WARNING: ONNX model '{}' not found in USER_MINING_MODELS.",
+                mgr.onnx_model()
+            );
+            println!("  Load it with: EXEC DBMS_VECTOR.LOAD_ONNX_MODEL(...)");
+        }
+        Err(e) => {
+            println!("  WARNING: Could not verify ONNX model: {e}");
+        }
+    }
+
+    println!("  Seeding prompts from workspace...");
+    let workspace_dir = config.workspace_dir.clone();
+    let prompt_count = tokio::task::spawn_blocking({
+        let conn = conn.clone();
+        let agent_id = agent_id.clone();
+        move || {
+            let store = oracle::OraclePromptStore::new(conn, &agent_id);
+            store.seed_from_workspace(&workspace_dir)
+        }
+    })
+    .await??;
+    println!("  Seeded {prompt_count} prompt(s) from workspace.");
+
+    println!();
+    println!("  Setup complete!");
+    println!("  Agent ID:  {agent_id}");
+    if config.oracle.mode == "adb" {
+        let dsn_display = config.oracle.dsn.as_deref().unwrap_or("(no DSN)");
+        let dsn_short: String = dsn_display.chars().take(60).collect();
+        println!("  Database:  ADB ({}...)", dsn_short);
+    } else {
+        println!(
+            "  Database:  {}:{}/{}",
+            config.oracle.host, config.oracle.port, config.oracle.service
+        );
+    }
+    println!();
+
+    Ok(())
+}
+
+async fn handle_oracle_inspect(config: &Config, table: &str, search: Option<&str>) -> Result<()> {
+    let mgr = tokio::task::spawn_blocking({
+        let oracle_config = config.oracle.clone();
+        move || oracle::OracleConnectionManager::new(&oracle_config)
+    })
+    .await??;
+
+    let conn = mgr.conn();
+    let agent_id = mgr.agent_id().to_string();
+
+    struct TableCount {
+        name: &'static str,
+        table_name: &'static str,
+    }
+
+    let tables = vec![
+        TableCount {
+            name: "Memories",
+            table_name: "ZERO_MEMORIES",
+        },
+        TableCount {
+            name: "Sessions",
+            table_name: "ZERO_SESSIONS",
+        },
+        TableCount {
+            name: "Transcripts",
+            table_name: "ZERO_TRANSCRIPTS",
+        },
+        TableCount {
+            name: "State",
+            table_name: "ZERO_STATE",
+        },
+        TableCount {
+            name: "Daily Notes",
+            table_name: "ZERO_DAILY_NOTES",
+        },
+        TableCount {
+            name: "Prompts",
+            table_name: "ZERO_PROMPTS",
+        },
+        TableCount {
+            name: "Config",
+            table_name: "ZERO_CONFIG",
+        },
+        TableCount {
+            name: "Meta",
+            table_name: "ZERO_META",
+        },
+    ];
+
+    let counts = tokio::task::spawn_blocking({
+        let conn = conn.clone();
+        let agent_id = agent_id.clone();
+        move || -> anyhow::Result<Vec<(&'static str, i64)>> {
+            let guard = conn
+                .lock()
+                .map_err(|e| anyhow::anyhow!("Connection lock poisoned: {e}"))?;
+            let mut results = Vec::new();
+            for t in &tables {
+                let sql = format!("SELECT COUNT(*) FROM {} WHERE agent_id = :1", t.table_name);
+                let count: i64 = match guard.query_row_as(&sql, &[&agent_id]) {
+                    Ok(c) => c,
+                    Err(_) => -1,
+                };
+                results.push((t.name, count));
+            }
+            Ok(results)
+        }
+    })
+    .await??;
+
+    println!();
+    println!("  =======================================");
+    println!("    ZeroOraClaw Oracle Inspector");
+    println!("  =======================================");
+    println!();
+    println!("  Agent ID: {agent_id}");
+    println!();
+    println!("  {:<20} {:>6}", "Table", "Rows");
+    println!("  {}", "-".repeat(27));
+    for (name, count) in &counts {
+        if *count < 0 {
+            println!("  {:<20} {:>6}", name, "N/A");
+        } else {
+            println!("  {:<20} {:>6}", name, count);
+        }
+    }
+    println!();
+
+    let table_lower = table.to_ascii_lowercase();
+    if table_lower == "memories"
+        && let Some(query) = search
+    {
+        let memory = oracle::OracleMemory::new(conn.clone(), &agent_id, mgr.onnx_model());
+        let entries = memory.recall(query, 10, None, None, None).await?;
+        if entries.is_empty() {
+            println!("  No matching memories for '{query}'.");
+        } else {
+            println!("  Top memory matches for '{query}':");
+            for (idx, entry) in entries.iter().enumerate() {
+                println!("  {}. [{}] {}", idx + 1, entry.key, entry.content);
+            }
+        }
+        println!();
+    }
+
+    Ok(())
 }
 
 fn handle_estop_command(
@@ -2691,8 +2948,9 @@ mod tests {
         write_shell_completion(CompletionShell::Bash, &mut output)
             .expect("completion generation should succeed");
         let script = String::from_utf8(output).expect("completion output should be valid utf-8");
+        let expected_name = Cli::command().get_name().to_string();
         assert!(
-            script.contains("zeroclaw"),
+            script.contains(&expected_name),
             "completion script should reference binary name"
         );
     }
