@@ -1,0 +1,1316 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ZeroOraClaw - Presentation</title>
+<link href="https://api.fontshare.com/v2/css?f[]=clash-display@400,500,600,700&f[]=satoshi@400,500,700&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg: #0a0f1c;
+  --bg-light: #111827;
+  --cyan: #00ffcc;
+  --magenta: #ff00aa;
+  --white: #e8eaf0;
+  --muted: #6b7280;
+  --green: #34d399;
+  --yellow: #fbbf24;
+  --font-display: 'Clash Display', system-ui, sans-serif;
+  --font-body: 'Satoshi', system-ui, sans-serif;
+  --font-mono: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+}
+
+html {
+  scroll-snap-type: y mandatory;
+  scroll-behavior: smooth;
+  overflow-x: hidden;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  .reveal, .reveal-left, .reveal-right, .reveal-scale {
+    opacity: 1 !important;
+    transform: none !important;
+    transition: none !important;
+  }
+  .neon-glow, .glow-text { text-shadow: none !important; animation: none !important; }
+}
+
+body {
+  background: var(--bg);
+  color: var(--white);
+  font-family: var(--font-body);
+  overflow-x: hidden;
+}
+
+/* ── SLIDE BASE ── */
+.slide {
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+  scroll-snap-align: start;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  padding: clamp(1rem, 4vw, 3rem);
+  text-align: center;
+}
+
+.slide::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(0,255,204,0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0,255,204,0.03) 1px, transparent 1px);
+  background-size: 40px 40px;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.slide > * { position: relative; z-index: 1; }
+
+.slide-number {
+  position: absolute;
+  bottom: clamp(0.5rem, 1.5vw, 1rem);
+  right: clamp(0.5rem, 1.5vw, 1rem);
+  font-family: var(--font-mono);
+  font-size: clamp(0.6rem, 1vw, 0.8rem);
+  color: var(--muted);
+  z-index: 2;
+}
+
+/* ── TYPOGRAPHY ── */
+h1 {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: clamp(2rem, 6vw, 5rem);
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+}
+
+h2 {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: clamp(1.5rem, 4vw, 3.5rem);
+  line-height: 1.15;
+  letter-spacing: -0.01em;
+}
+
+h3 {
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: clamp(1.2rem, 3vw, 2.5rem);
+  line-height: 1.2;
+}
+
+p, li {
+  font-size: clamp(0.85rem, 1.8vw, 1.25rem);
+  line-height: 1.6;
+  color: var(--white);
+}
+
+.subtitle {
+  font-size: clamp(0.9rem, 2vw, 1.4rem);
+  color: var(--muted);
+  margin-top: clamp(0.3rem, 1vw, 0.75rem);
+}
+
+.tagline {
+  font-family: var(--font-mono);
+  font-size: clamp(0.75rem, 1.5vw, 1.1rem);
+  color: var(--cyan);
+  letter-spacing: 0.05em;
+}
+
+/* ── NEON EFFECTS ── */
+.glow-text {
+  text-shadow: 0 0 20px rgba(0,255,204,0.5), 0 0 40px rgba(0,255,204,0.2);
+}
+
+.glow-magenta {
+  text-shadow: 0 0 20px rgba(255,0,170,0.5), 0 0 40px rgba(255,0,170,0.2);
+}
+
+.neon-border {
+  border: 1px solid rgba(0,255,204,0.3);
+  box-shadow: 0 0 15px rgba(0,255,204,0.1), inset 0 0 15px rgba(0,255,204,0.05);
+}
+
+.neon-border-magenta {
+  border: 1px solid rgba(255,0,170,0.3);
+  box-shadow: 0 0 15px rgba(255,0,170,0.1), inset 0 0 15px rgba(255,0,170,0.05);
+}
+
+.cyan { color: var(--cyan); }
+.magenta { color: var(--magenta); }
+.green { color: var(--green); }
+.yellow { color: var(--yellow); }
+
+/* ── SECTION DIVIDER ── */
+.section-slide {
+  background: radial-gradient(ellipse at center, rgba(0,255,204,0.08) 0%, transparent 70%);
+}
+
+.section-number {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: clamp(5rem, 15vw, 12rem);
+  color: rgba(0,255,204,0.08);
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 0 !important;
+  pointer-events: none;
+}
+
+.section-label {
+  font-family: var(--font-mono);
+  font-size: clamp(0.7rem, 1.2vw, 0.9rem);
+  color: var(--cyan);
+  text-transform: uppercase;
+  letter-spacing: 0.2em;
+  margin-bottom: clamp(0.5rem, 1vw, 1rem);
+}
+
+/* ── CARDS ── */
+.card-grid {
+  display: grid;
+  gap: clamp(0.5rem, 1.5vw, 1rem);
+  width: 100%;
+  max-width: 1100px;
+  margin-top: clamp(0.5rem, 2vw, 1.5rem);
+}
+
+.card-grid.cols-2 { grid-template-columns: repeat(2, 1fr); }
+.card-grid.cols-3 { grid-template-columns: repeat(3, 1fr); }
+.card-grid.cols-4 { grid-template-columns: repeat(4, 1fr); }
+.card-grid.cols-5 { grid-template-columns: repeat(5, 1fr); }
+.card-grid.cols-6 { grid-template-columns: repeat(6, 1fr); }
+
+@media (max-width: 768px) {
+  .card-grid.cols-3, .card-grid.cols-4, .card-grid.cols-5, .card-grid.cols-6 {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 480px) {
+  .card-grid.cols-2, .card-grid.cols-3, .card-grid.cols-4, .card-grid.cols-5, .card-grid.cols-6 {
+    grid-template-columns: 1fr;
+  }
+}
+
+.card {
+  background: rgba(17, 24, 39, 0.7);
+  border: 1px solid rgba(0,255,204,0.15);
+  border-radius: clamp(0.4rem, 0.8vw, 0.75rem);
+  padding: clamp(0.5rem, 1.5vw, 1.25rem);
+  text-align: left;
+  transition: border-color 0.3s, box-shadow 0.3s;
+}
+
+.card:hover {
+  border-color: rgba(0,255,204,0.4);
+  box-shadow: 0 0 20px rgba(0,255,204,0.1);
+}
+
+.card h4 {
+  font-family: var(--font-display);
+  font-size: clamp(0.8rem, 1.5vw, 1.1rem);
+  font-weight: 600;
+  color: var(--cyan);
+  margin-bottom: clamp(0.2rem, 0.5vw, 0.4rem);
+}
+
+.card p {
+  font-size: clamp(0.65rem, 1.2vw, 0.9rem);
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+.card.magenta-card {
+  border-color: rgba(255,0,170,0.2);
+}
+.card.magenta-card:hover {
+  border-color: rgba(255,0,170,0.4);
+  box-shadow: 0 0 20px rgba(255,0,170,0.1);
+}
+.card.magenta-card h4 { color: var(--magenta); }
+
+/* ── STAT BLOCKS ── */
+.stats-row {
+  display: flex;
+  gap: clamp(1rem, 3vw, 2.5rem);
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-top: clamp(0.5rem, 2vw, 1.5rem);
+}
+
+.stat {
+  text-align: center;
+}
+
+.stat-value {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: clamp(2rem, 5vw, 4rem);
+  color: var(--cyan);
+  line-height: 1;
+}
+
+.stat-label {
+  font-size: clamp(0.65rem, 1.2vw, 0.9rem);
+  color: var(--muted);
+  margin-top: clamp(0.2rem, 0.5vw, 0.3rem);
+}
+
+/* ── CODE BLOCKS ── */
+.code-block {
+  background: rgba(0,0,0,0.4);
+  border: 1px solid rgba(0,255,204,0.15);
+  border-radius: clamp(0.3rem, 0.6vw, 0.5rem);
+  padding: clamp(0.6rem, 1.5vw, 1.25rem);
+  font-family: var(--font-mono);
+  font-size: clamp(0.6rem, 1.2vw, 0.85rem);
+  text-align: left;
+  overflow-x: auto;
+  max-width: 900px;
+  width: 100%;
+  line-height: 1.6;
+}
+
+.code-block .keyword { color: var(--cyan); }
+.code-block .type { color: var(--magenta); }
+.code-block .string { color: var(--green); }
+.code-block .comment { color: var(--muted); }
+.code-block .func { color: var(--yellow); }
+
+/* ── FLOW DIAGRAM ── */
+.flow {
+  display: flex;
+  align-items: center;
+  gap: clamp(0.3rem, 1vw, 0.75rem);
+  flex-wrap: wrap;
+  justify-content: center;
+  margin-top: clamp(0.5rem, 1.5vw, 1rem);
+}
+
+.flow-box {
+  background: rgba(17,24,39,0.8);
+  border: 1px solid rgba(0,255,204,0.25);
+  border-radius: clamp(0.3rem, 0.5vw, 0.5rem);
+  padding: clamp(0.4rem, 1vw, 0.75rem) clamp(0.6rem, 1.5vw, 1.25rem);
+  font-family: var(--font-mono);
+  font-size: clamp(0.6rem, 1.1vw, 0.8rem);
+  color: var(--cyan);
+  white-space: nowrap;
+}
+
+.flow-box.magenta-box {
+  border-color: rgba(255,0,170,0.3);
+  color: var(--magenta);
+}
+
+.flow-arrow {
+  font-size: clamp(0.8rem, 1.5vw, 1.2rem);
+  color: var(--muted);
+}
+
+/* ── LIST STYLES ── */
+.feature-list {
+  list-style: none;
+  text-align: left;
+  max-width: 800px;
+  margin-top: clamp(0.5rem, 1.5vw, 1rem);
+}
+
+.feature-list li {
+  font-size: clamp(0.75rem, 1.4vw, 1rem);
+  padding: clamp(0.2rem, 0.5vw, 0.35rem) 0;
+  padding-left: clamp(1rem, 2vw, 1.5rem);
+  position: relative;
+}
+
+.feature-list li::before {
+  content: '>';
+  position: absolute;
+  left: 0;
+  color: var(--cyan);
+  font-family: var(--font-mono);
+}
+
+/* ── CHANNEL TAG ── */
+.tag-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: clamp(0.3rem, 0.8vw, 0.5rem);
+  justify-content: center;
+  max-width: 1000px;
+  margin-top: clamp(0.5rem, 1.5vw, 1rem);
+}
+
+.tag {
+  background: rgba(0,255,204,0.08);
+  border: 1px solid rgba(0,255,204,0.2);
+  border-radius: 100px;
+  padding: clamp(0.25rem, 0.5vw, 0.4rem) clamp(0.6rem, 1.2vw, 1rem);
+  font-family: var(--font-mono);
+  font-size: clamp(0.55rem, 1vw, 0.75rem);
+  color: var(--cyan);
+  white-space: nowrap;
+}
+
+.tag.magenta-tag {
+  background: rgba(255,0,170,0.08);
+  border-color: rgba(255,0,170,0.2);
+  color: var(--magenta);
+}
+
+/* ── REVEAL ANIMATIONS ── */
+.reveal {
+  opacity: 0;
+  transform: translateY(30px);
+  transition: opacity 0.6s ease, transform 0.6s ease;
+}
+
+.reveal-left {
+  opacity: 0;
+  transform: translateX(-30px);
+  transition: opacity 0.6s ease, transform 0.6s ease;
+}
+
+.reveal-right {
+  opacity: 0;
+  transform: translateX(30px);
+  transition: opacity 0.6s ease, transform 0.6s ease;
+}
+
+.reveal-scale {
+  opacity: 0;
+  transform: scale(0.95);
+  transition: opacity 0.6s ease, transform 0.6s ease;
+}
+
+.reveal.visible, .reveal-left.visible, .reveal-right.visible, .reveal-scale.visible {
+  opacity: 1;
+  transform: none;
+}
+
+.delay-1 { transition-delay: 0.1s; }
+.delay-2 { transition-delay: 0.2s; }
+.delay-3 { transition-delay: 0.3s; }
+.delay-4 { transition-delay: 0.4s; }
+.delay-5 { transition-delay: 0.5s; }
+
+/* ── PROGRESS BAR ── */
+#progress-bar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--cyan), var(--magenta));
+  z-index: 1000;
+  transition: width 0.3s ease;
+  box-shadow: 0 0 10px rgba(0,255,204,0.5);
+}
+
+/* ── NAV DOTS ── */
+#nav-dots {
+  position: fixed;
+  right: clamp(0.5rem, 1.5vw, 1rem);
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  z-index: 1000;
+}
+
+.nav-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.15);
+  cursor: pointer;
+  transition: background 0.3s, transform 0.3s, box-shadow 0.3s;
+  border: none;
+  padding: 0;
+}
+
+.nav-dot:hover {
+  background: rgba(0,255,204,0.5);
+  transform: scale(1.3);
+}
+
+.nav-dot.active {
+  background: var(--cyan);
+  box-shadow: 0 0 8px rgba(0,255,204,0.6);
+  transform: scale(1.2);
+}
+
+/* ── TWO COLUMN LAYOUT ── */
+.two-col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: clamp(1rem, 3vw, 2rem);
+  width: 100%;
+  max-width: 1100px;
+  text-align: left;
+}
+
+@media (max-width: 768px) {
+  .two-col { grid-template-columns: 1fr; }
+}
+
+/* ── VERSION BADGE ── */
+.version-badge {
+  display: inline-block;
+  background: rgba(0,255,204,0.1);
+  border: 1px solid rgba(0,255,204,0.3);
+  border-radius: 100px;
+  padding: clamp(0.2rem, 0.4vw, 0.3rem) clamp(0.5rem, 1vw, 0.8rem);
+  font-family: var(--font-mono);
+  font-size: clamp(0.6rem, 1vw, 0.75rem);
+  color: var(--cyan);
+  margin-bottom: clamp(0.5rem, 1vw, 0.75rem);
+}
+
+/* ── RESPONSIVE HEIGHT ── */
+@media (max-height: 700px) {
+  h1 { font-size: clamp(1.5rem, 5vw, 3.5rem); }
+  h2 { font-size: clamp(1.2rem, 3.5vw, 2.5rem); }
+  .stat-value { font-size: clamp(1.5rem, 4vw, 3rem); }
+  .card { padding: clamp(0.4rem, 1vw, 0.75rem); }
+  .section-number { font-size: clamp(4rem, 12vw, 8rem); }
+}
+
+@media (max-height: 600px) {
+  h1 { font-size: clamp(1.3rem, 4.5vw, 3rem); }
+  h2 { font-size: clamp(1rem, 3vw, 2rem); }
+  .slide { padding: clamp(0.5rem, 2vw, 1.5rem); }
+  .stats-row { gap: clamp(0.5rem, 2vw, 1.5rem); }
+  .card-grid { gap: clamp(0.3rem, 1vw, 0.5rem); }
+}
+
+@media (max-height: 500px) {
+  h1 { font-size: clamp(1.1rem, 4vw, 2.5rem); }
+  h2 { font-size: clamp(0.9rem, 2.5vw, 1.8rem); }
+  .slide { padding: clamp(0.3rem, 1.5vw, 1rem); }
+  .feature-list li { font-size: clamp(0.6rem, 1.2vw, 0.8rem); }
+  .code-block { font-size: clamp(0.5rem, 1vw, 0.7rem); padding: clamp(0.4rem, 1vw, 0.75rem); }
+}
+
+/* ── TITLE DECORATIONS ── */
+.title-deco {
+  width: clamp(40px, 8vw, 80px);
+  height: 2px;
+  background: linear-gradient(90deg, var(--cyan), transparent);
+  margin: clamp(0.5rem, 1vw, 0.75rem) auto;
+}
+
+.arch-diagram {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: clamp(0.4rem, 1vw, 0.75rem);
+  margin-top: clamp(0.5rem, 1.5vw, 1rem);
+}
+
+.arch-row {
+  display: flex;
+  gap: clamp(0.3rem, 0.8vw, 0.5rem);
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.arch-connector {
+  font-size: clamp(0.8rem, 1.5vw, 1.2rem);
+  color: rgba(0,255,204,0.4);
+}
+</style>
+</head>
+<body>
+
+<div id="progress-bar"></div>
+<nav id="nav-dots"></nav>
+
+<!-- ════════════════════════════════════════ SLIDE 1: TITLE ════════════════════════════════════════ -->
+<section class="slide" data-title="Title">
+  <div class="reveal">
+    <div class="version-badge">v0.6.5-oracle.1</div>
+  </div>
+  <h1 class="reveal delay-1 glow-text">ZeroOraClaw</h1>
+  <div class="title-deco reveal delay-2"></div>
+  <p class="tagline reveal delay-2">Zero overhead. Zero compromise. Oracle persistence.</p>
+  <p class="subtitle reveal delay-3">Oracle AI Database-powered AI assistant. 100% Rust.</p>
+  <p class="subtitle reveal delay-4" style="margin-top: clamp(1rem, 3vw, 2rem);">
+    <span class="cyan">Rust 1.87+</span> &middot; <span class="magenta">Edition 2024</span> &middot; MIT OR Apache-2.0
+  </p>
+  <span class="slide-number">01</span>
+</section>
+
+<!-- ════════════════════════════════════════ SLIDE 2: THE PITCH ════════════════════════════════════════ -->
+<section class="slide" data-title="The Pitch">
+  <h2 class="reveal">By the Numbers</h2>
+  <div class="stats-row reveal delay-1">
+    <div class="stat">
+      <div class="stat-value glow-text">520</div>
+      <div class="stat-label">.rs files</div>
+    </div>
+    <div class="stat">
+      <div class="stat-value glow-text">30+</div>
+      <div class="stat-label">modules</div>
+    </div>
+    <div class="stat">
+      <div class="stat-value" style="color: var(--magenta);">70+</div>
+      <div class="stat-label">tools</div>
+    </div>
+    <div class="stat">
+      <div class="stat-value" style="color: var(--magenta);">18+</div>
+      <div class="stat-label">channels</div>
+    </div>
+    <div class="stat">
+      <div class="stat-value glow-text">13+</div>
+      <div class="stat-label">LLM providers</div>
+    </div>
+  </div>
+  <p class="subtitle reveal delay-2" style="margin-top: clamp(1rem, 2vw, 1.5rem);">
+    Fork of ZeroClaw with every persistence layer replaced by Oracle AI Database
+  </p>
+  <span class="slide-number">02</span>
+</section>
+
+<!-- ════════════════════════════════════════ SLIDE 3: WHY ORACLE ════════════════════════════════════════ -->
+<section class="slide" data-title="Why Oracle">
+  <h2 class="reveal">Why <span class="magenta">Oracle</span>?</h2>
+  <div class="card-grid cols-3 reveal delay-1">
+    <div class="card magenta-card">
+      <h4>In-DB ONNX Embeddings</h4>
+      <p>Generate vectors inside the database. No external embedding service. Lower latency, zero network hops.</p>
+    </div>
+    <div class="card magenta-card">
+      <h4>AI Vector Search</h4>
+      <p>Native vector indexing with HNSW and IVF. Hybrid search combining FTS + vectors with RRF scoring.</p>
+    </div>
+    <div class="card magenta-card">
+      <h4>ACID Guarantees</h4>
+      <p>Full transactional isolation for multi-agent workloads. No eventual consistency surprises.</p>
+    </div>
+    <div class="card">
+      <h4>Multi-Agent Isolation</h4>
+      <p>Session-level partitioning. Each agent gets its own namespace, history, and memory scope.</p>
+    </div>
+    <div class="card">
+      <h4>26ai Free Tier</h4>
+      <p>Always-free Oracle Cloud tier. Run production workloads at zero cost with ARM A1.Flex instances.</p>
+    </div>
+    <div class="card">
+      <h4>Pure Rust Driver</h4>
+      <p>No InstantClient dependency. Compiles and runs anywhere Rust does, including Alpine containers.</p>
+    </div>
+  </div>
+  <span class="slide-number">03</span>
+</section>
+
+<!-- ════════════════════════════════════════ SLIDE 4: ARCHITECTURE ════════════════════════════════════════ -->
+<section class="slide" data-title="Architecture">
+  <h2 class="reveal">Architecture Overview</h2>
+  <div class="arch-diagram reveal delay-1">
+    <div class="arch-row">
+      <div class="flow-box">Discord</div>
+      <div class="flow-box">Telegram</div>
+      <div class="flow-box">Slack</div>
+      <div class="flow-box">CLI</div>
+      <div class="flow-box">HTTP</div>
+      <div class="flow-box">+13 more</div>
+    </div>
+    <div class="arch-connector">|</div>
+    <div class="flow-box" style="font-size: clamp(0.7rem, 1.3vw, 1rem); padding: clamp(0.5rem, 1.2vw, 1rem) clamp(1rem, 2vw, 2rem); border-color: rgba(0,255,204,0.5);">
+      <span class="cyan" style="font-weight: 700;">Agent Core</span> &nbsp;(dispatcher + classifier + scheduler)
+    </div>
+    <div class="arch-connector">|</div>
+    <div class="arch-row">
+      <div class="flow-box magenta-box">Safety Layer</div>
+      <div class="flow-box magenta-box">LLM Providers</div>
+      <div class="flow-box">70+ Tools</div>
+      <div class="flow-box">Skills</div>
+    </div>
+    <div class="arch-connector">|</div>
+    <div class="flow-box magenta-box" style="font-size: clamp(0.7rem, 1.3vw, 1rem); padding: clamp(0.5rem, 1.2vw, 1rem) clamp(1rem, 2vw, 2rem); border-color: rgba(255,0,170,0.5);">
+      <span class="magenta" style="font-weight: 700;">Oracle AI Database</span> &nbsp;(memory, sessions, prompts, embeddings)
+    </div>
+  </div>
+  <span class="slide-number">04</span>
+</section>
+
+<!-- ════════════════════════════════════════ SLIDE 5: SECTION - Agent Core ════════════════════════════════════════ -->
+<section class="slide section-slide" data-title="Section: Agent Core">
+  <div class="section-number">01</div>
+  <div class="section-label reveal">Section</div>
+  <h1 class="reveal delay-1 glow-text">Agent Core</h1>
+  <p class="subtitle reveal delay-2">The brain that ties it all together</p>
+  <span class="slide-number">05</span>
+</section>
+
+<!-- ════════════════════════════════════════ SLIDE 6: AGENT LOOP ════════════════════════════════════════ -->
+<section class="slide" data-title="Agent Loop">
+  <h2 class="reveal">The Agent Loop</h2>
+  <div class="flow reveal delay-1" style="margin-top: clamp(1rem, 2vw, 1.5rem);">
+    <div class="flow-box">Inbound Message</div>
+    <div class="flow-arrow">&rarr;</div>
+    <div class="flow-box magenta-box">Safety Check</div>
+    <div class="flow-arrow">&rarr;</div>
+    <div class="flow-box">Dispatcher</div>
+    <div class="flow-arrow">&rarr;</div>
+    <div class="flow-box">LLM Call</div>
+  </div>
+  <div class="flow reveal delay-2" style="margin-top: clamp(0.5rem, 1vw, 0.75rem);">
+    <div class="flow-box">LLM Response</div>
+    <div class="flow-arrow">&rarr;</div>
+    <div class="flow-box">Tool Execution</div>
+    <div class="flow-arrow">&rarr;</div>
+    <div class="flow-box magenta-box">Safety Check</div>
+    <div class="flow-arrow">&rarr;</div>
+    <div class="flow-box" style="border-color: rgba(0,255,204,0.5);">Response</div>
+  </div>
+  <div class="code-block reveal delay-3" style="margin-top: clamp(0.75rem, 2vw, 1.5rem);">
+<span class="keyword">loop</span> {
+    <span class="keyword">let</span> msg = channel.<span class="func">recv</span>().<span class="keyword">await</span>?;
+    <span class="keyword">let</span> safe = safety.<span class="func">check_inbound</span>(&amp;msg).<span class="keyword">await</span>?;
+    <span class="keyword">let</span> plan = dispatcher.<span class="func">classify_and_route</span>(safe).<span class="keyword">await</span>?;
+    <span class="keyword">let</span> response = agent.<span class="func">execute</span>(plan).<span class="keyword">await</span>?;
+    channel.<span class="func">send</span>(response).<span class="keyword">await</span>?;
+}
+  </div>
+  <span class="slide-number">06</span>
+</section>
+
+<!-- ════════════════════════════════════════ SLIDE 7: AGENT FEATURES ════════════════════════════════════════ -->
+<section class="slide" data-title="Agent Features">
+  <h2 class="reveal">Agent Features</h2>
+  <div class="card-grid cols-3 reveal delay-1">
+    <div class="card">
+      <h4>Classifier</h4>
+      <p>Categorizes incoming messages by intent, urgency, and required capabilities before routing.</p>
+    </div>
+    <div class="card">
+      <h4>Context Analyzer</h4>
+      <p>Inspects conversation history, session state, and relevant memories to build rich context.</p>
+    </div>
+    <div class="card">
+      <h4>Context Compressor</h4>
+      <p>Summarizes long conversations to keep within token budgets without losing critical detail.</p>
+    </div>
+    <div class="card magenta-card">
+      <h4>Personality Engine</h4>
+      <p>Psychographic 9-dimension profile shapes tone, formality, and communication style per user.</p>
+    </div>
+    <div class="card magenta-card">
+      <h4>Thinking / Reasoning</h4>
+      <p>Extended reasoning mode with chain-of-thought traces. Visible scratchpad for complex tasks.</p>
+    </div>
+    <div class="card magenta-card">
+      <h4>Scheduler</h4>
+      <p>Background job scheduling with heartbeat, cron routines, and priority queuing.</p>
+    </div>
+  </div>
+  <span class="slide-number">07</span>
+</section>
+
+<!-- ════════════════════════════════════════ SLIDE 8: SECTION - Channels ════════════════════════════════════════ -->
+<section class="slide section-slide" data-title="Section: Channels">
+  <div class="section-number">02</div>
+  <div class="section-label reveal">Section</div>
+  <h1 class="reveal delay-1 glow-text">Channels</h1>
+  <p class="subtitle reveal delay-2">18+ ways to talk to your agent</p>
+  <span class="slide-number">08</span>
+</section>
+
+<!-- ════════════════════════════════════════ SLIDE 9: CHANNELS GRID 1 ════════════════════════════════════════ -->
+<section class="slide" data-title="Channels (1/2)">
+  <h2 class="reveal">Communication Channels</h2>
+  <div class="tag-grid reveal delay-1" style="margin-top: clamp(0.75rem, 2vw, 1.5rem);">
+    <div class="tag">Discord</div>
+    <div class="tag">Telegram</div>
+    <div class="tag">Slack</div>
+    <div class="tag magenta-tag">Signal</div>
+    <div class="tag">IRC</div>
+    <div class="tag magenta-tag">Email (IMAP/SMTP)</div>
+    <div class="tag">Gmail</div>
+    <div class="tag magenta-tag">iMessage</div>
+    <div class="tag">Matrix</div>
+    <div class="tag">Mattermost</div>
+    <div class="tag magenta-tag">Lark</div>
+    <div class="tag">Bluesky</div>
+    <div class="tag magenta-tag">DingTalk</div>
+    <div class="tag">WhatsApp</div>
+    <div class="tag">CLI / REPL</div>
+    <div class="tag magenta-tag">HTTP Webhook</div>
+    <div class="tag">WebSocket</div>
+    <div class="tag">WASM Channels</div>
+  </div>
+  <div class="code-block reveal delay-2" style="margin-top: clamp(0.75rem, 2vw, 1.5rem); max-width: 700px;">
+<span class="comment">// Every channel implements the same trait</span>
+<span class="keyword">pub trait</span> <span class="type">Channel</span>: <span class="type">Send</span> + <span class="type">Sync</span> {
+    <span class="keyword">fn</span> <span class="func">name</span>(&amp;<span class="keyword">self</span>) -> &amp;<span class="type">str</span>;
+    <span class="keyword">async fn</span> <span class="func">start</span>(&amp;<span class="keyword">self</span>) -> <span class="type">Result</span>&lt;<span class="type">MessageStream</span>&gt;;
+    <span class="keyword">async fn</span> <span class="func">send</span>(&amp;<span class="keyword">self</span>, resp: <span class="type">OutgoingResponse</span>) -> <span class="type">Result</span>&lt;()&gt;;
+}
+  </div>
+  <span class="slide-number">09</span>
+</section>
+
+<!-- ════════════════════════════════════════ SLIDE 10: SECTION - Tools ════════════════════════════════════════ -->
+<section class="slide section-slide" data-title="Section: Tools">
+  <div class="section-number">03</div>
+  <div class="section-label reveal">Section</div>
+  <h1 class="reveal delay-1 glow-text">Tools</h1>
+  <p class="subtitle reveal delay-2">70+ built-in, fully extensible</p>
+  <span class="slide-number">10</span>
+</section>
+
+<!-- ════════════════════════════════════════ SLIDE 11: 70+ TOOLS ════════════════════════════════════════ -->
+<section class="slide" data-title="Tool Catalog">
+  <h2 class="reveal">Tool Catalog</h2>
+  <div class="card-grid cols-4 reveal delay-1">
+    <div class="card">
+      <h4>File Ops</h4>
+      <p>Read, write, search, glob, tree, diff</p>
+    </div>
+    <div class="card">
+      <h4>Shell</h4>
+      <p>Sandboxed command execution with Docker isolation</p>
+    </div>
+    <div class="card">
+      <h4>Browser</h4>
+      <p>Fetch, render, screenshot, extract content</p>
+    </div>
+    <div class="card magenta-card">
+      <h4>Memory</h4>
+      <p>Write, search, read, tree across multiple backends</p>
+    </div>
+    <div class="card">
+      <h4>HTTP Client</h4>
+      <p>Request builder with auth, headers, body parsing</p>
+    </div>
+    <div class="card">
+      <h4>Web Search</h4>
+      <p>Multi-provider web search aggregation</p>
+    </div>
+    <div class="card magenta-card">
+      <h4>MCP</h4>
+      <p>Model Context Protocol client for external tool servers</p>
+    </div>
+    <div class="card">
+      <h4>Delegation</h4>
+      <p>Spawn sub-agents for parallel task execution</p>
+    </div>
+    <div class="card">
+      <h4>Cron / Routines</h4>
+      <p>Scheduled recurring tasks and heartbeat checks</p>
+    </div>
+    <div class="card">
+      <h4>Image / PDF</h4>
+      <p>OCR, generation, PDF parsing, vision-based analysis</p>
+    </div>
+    <div class="card magenta-card">
+      <h4>Git / Jira / Notion</h4>
+      <p>Dev workflow integrations for project management</p>
+    </div>
+    <div class="card">
+      <h4>SOP Tools</h4>
+      <p>Standard operating procedure execution and tracking</p>
+    </div>
+  </div>
+  <span class="slide-number">11</span>
+</section>
+
+<!-- ════════════════════════════════════════ SLIDE 12: TOOL SAFETY ════════════════════════════════════════ -->
+<section class="slide" data-title="Tool Safety">
+  <h2 class="reveal">Tool Security Model</h2>
+  <div class="two-col reveal delay-1" style="margin-top: clamp(0.75rem, 2vw, 1.5rem);">
+    <div>
+      <h3 style="font-size: clamp(1rem, 2vw, 1.5rem); margin-bottom: clamp(0.5rem, 1vw, 0.75rem);">SecurityPolicy Injection</h3>
+      <ul class="feature-list">
+        <li>Every tool call gets a SecurityPolicy context</li>
+        <li>Approval gates for destructive operations</li>
+        <li>Network allowlists for HTTP-capable tools</li>
+        <li>Credential injection scoped per-tool</li>
+        <li>Fuel metering and memory limits (WASM)</li>
+      </ul>
+    </div>
+    <div class="code-block" style="align-self: center;">
+<span class="keyword">pub trait</span> <span class="type">Tool</span>: <span class="type">Send</span> + <span class="type">Sync</span> {
+    <span class="keyword">fn</span> <span class="func">name</span>(&amp;<span class="keyword">self</span>) -> &amp;<span class="type">str</span>;
+    <span class="keyword">fn</span> <span class="func">description</span>(&amp;<span class="keyword">self</span>) -> &amp;<span class="type">str</span>;
+    <span class="keyword">fn</span> <span class="func">parameters</span>(&amp;<span class="keyword">self</span>) -> <span class="type">JsonSchema</span>;
+
+    <span class="keyword">async fn</span> <span class="func">execute</span>(
+        &amp;<span class="keyword">self</span>,
+        args: <span class="type">Value</span>,
+        policy: &amp;<span class="type">SecurityPolicy</span>,
+    ) -> <span class="type">Result</span>&lt;<span class="type">ToolOutput</span>&gt;;
+}
+    </div>
+  </div>
+  <span class="slide-number">12</span>
+</section>
+
+<!-- ════════════════════════════════════════ SLIDE 13: SECTION - LLM ════════════════════════════════════════ -->
+<section class="slide section-slide" data-title="Section: LLM Providers">
+  <div class="section-number">04</div>
+  <div class="section-label reveal">Section</div>
+  <h1 class="reveal delay-1 glow-text">LLM Providers</h1>
+  <p class="subtitle reveal delay-2">13+ backends, one interface</p>
+  <span class="slide-number">13</span>
+</section>
+
+<!-- ════════════════════════════════════════ SLIDE 14: LLM BACKENDS ════════════════════════════════════════ -->
+<section class="slide" data-title="LLM Backends">
+  <h2 class="reveal">Provider Backends</h2>
+  <div class="tag-grid reveal delay-1" style="margin-top: clamp(0.75rem, 2vw, 1.25rem);">
+    <div class="tag">OpenAI</div>
+    <div class="tag magenta-tag">Anthropic</div>
+    <div class="tag">Azure OpenAI</div>
+    <div class="tag magenta-tag">AWS Bedrock</div>
+    <div class="tag">Ollama</div>
+    <div class="tag">OpenRouter</div>
+    <div class="tag magenta-tag">Google Gemini</div>
+    <div class="tag">NearAI</div>
+    <div class="tag magenta-tag">Tinfoil</div>
+    <div class="tag">OpenAI Compatible</div>
+    <div class="tag">WASM LLM</div>
+    <div class="tag magenta-tag">Fireworks</div>
+    <div class="tag">DeepSeek</div>
+  </div>
+  <div class="card-grid cols-2 reveal delay-2" style="margin-top: clamp(0.75rem, 2vw, 1.25rem); max-width: 800px;">
+    <div class="card">
+      <h4>ReliableProvider</h4>
+      <p>Fallback chains across providers. If primary fails, seamlessly routes to next backend. Zero downtime for the agent.</p>
+    </div>
+    <div class="card magenta-card">
+      <h4>Unified Trait</h4>
+      <p>Every provider implements LlmProvider. Streaming, tool calling, vision, and structured output through one interface.</p>
+    </div>
+  </div>
+  <span class="slide-number">14</span>
+</section>
+
+<!-- ════════════════════════════════════════ SLIDE 15: SECTION - Safety ════════════════════════════════════════ -->
+<section class="slide section-slide" data-title="Section: Safety & Security">
+  <div class="section-number">05</div>
+  <div class="section-label reveal">Section</div>
+  <h1 class="reveal delay-1 glow-magenta" style="color: var(--magenta);">Safety &amp; Security</h1>
+  <p class="subtitle reveal delay-2">Defense in depth, built into every layer</p>
+  <span class="slide-number">15</span>
+</section>
+
+<!-- ════════════════════════════════════════ SLIDE 16: DEFENSE ════════════════════════════════════════ -->
+<section class="slide" data-title="Defense in Depth">
+  <h2 class="reveal">Defense in Depth</h2>
+  <div class="card-grid cols-3 reveal delay-1">
+    <div class="card magenta-card">
+      <h4>Prompt Injection Detection</h4>
+      <p>Multi-layer scanning catches injection attempts before they reach the LLM. Extracted to its own crate.</p>
+    </div>
+    <div class="card magenta-card">
+      <h4>Trust-Based Attenuation</h4>
+      <p>Skills and tools get different capability ceilings. Installed extensions can't access destructive tools.</p>
+    </div>
+    <div class="card magenta-card">
+      <h4>Approval Gates</h4>
+      <p>Destructive operations require explicit user approval. Configurable per-tool and per-policy.</p>
+    </div>
+    <div class="card">
+      <h4>Input Validation</h4>
+      <p>Schema-driven validation on every tool argument. Rejects malformed input before execution.</p>
+    </div>
+    <div class="card">
+      <h4>Data Leak Detection</h4>
+      <p>Scans outbound responses for sensitive data patterns (PII, secrets, credentials).</p>
+    </div>
+    <div class="card">
+      <h4>Sandbox Isolation</h4>
+      <p>Docker-based execution sandbox with network proxy, domain allowlists, and credential injection.</p>
+    </div>
+  </div>
+  <span class="slide-number">16</span>
+</section>
+
+<!-- ════════════════════════════════════════ SLIDE 17: SECTION - Persistence ════════════════════════════════════════ -->
+<section class="slide section-slide" data-title="Section: Persistence">
+  <div class="section-number">06</div>
+  <div class="section-label reveal">Section</div>
+  <h1 class="reveal delay-1 glow-text">Persistence</h1>
+  <p class="subtitle reveal delay-2">Where Oracle makes the difference</p>
+  <span class="slide-number">17</span>
+</section>
+
+<!-- ════════════════════════════════════════ SLIDE 18: ORACLE INTEGRATION ════════════════════════════════════════ -->
+<section class="slide" data-title="Oracle Integration">
+  <h2 class="reveal">Oracle DB Module</h2>
+  <p class="subtitle reveal delay-1">10 files. Pure Rust. No InstantClient.</p>
+  <div class="card-grid cols-2 reveal delay-2" style="max-width: 900px; margin-top: clamp(0.5rem, 1.5vw, 1rem);">
+    <div class="card magenta-card">
+      <h4>connection.rs</h4>
+      <p>Connection pool management, health checks, retry logic</p>
+    </div>
+    <div class="card magenta-card">
+      <h4>embedding.rs</h4>
+      <p>In-database ONNX model inference for vector generation</p>
+    </div>
+    <div class="card magenta-card">
+      <h4>memory.rs</h4>
+      <p>Memory backend: write, search, read, delete with vector support</p>
+    </div>
+    <div class="card magenta-card">
+      <h4>schema.rs</h4>
+      <p>DDL migrations, table creation, index management</p>
+    </div>
+    <div class="card">
+      <h4>session.rs</h4>
+      <p>Session persistence, conversation state, agent isolation</p>
+    </div>
+    <div class="card">
+      <h4>prompt.rs</h4>
+      <p>System prompt versioning and retrieval</p>
+    </div>
+  </div>
+  <div class="code-block reveal delay-3" style="margin-top: clamp(0.5rem, 1.5vw, 1rem); max-width: 700px;">
+<span class="comment">// Pure Rust connection, zero InstantClient</span>
+<span class="keyword">let</span> pool = <span class="type">OraclePool</span>::<span class="func">builder</span>()
+    .<span class="func">connection_string</span>(&amp;config.dsn)
+    .<span class="func">wallet_path</span>(&amp;config.wallet)
+    .<span class="func">max_connections</span>(<span class="string">16</span>)
+    .<span class="func">build</span>().<span class="keyword">await</span>?;
+  </div>
+  <span class="slide-number">18</span>
+</section>
+
+<!-- ════════════════════════════════════════ SLIDE 19: MEMORY SYSTEM ════════════════════════════════════════ -->
+<section class="slide" data-title="Memory System">
+  <h2 class="reveal">Memory System</h2>
+  <div class="two-col reveal delay-1" style="margin-top: clamp(0.5rem, 1.5vw, 1rem);">
+    <div>
+      <h3 style="font-size: clamp(1rem, 2vw, 1.5rem); margin-bottom: clamp(0.5rem, 1vw, 0.75rem);">Multiple Backends</h3>
+      <div class="tag-grid" style="justify-content: flex-start;">
+        <div class="tag magenta-tag">Oracle AI DB</div>
+        <div class="tag">SQLite</div>
+        <div class="tag">Qdrant</div>
+        <div class="tag">Markdown</div>
+        <div class="tag">Lucid</div>
+      </div>
+      <ul class="feature-list" style="margin-top: clamp(0.5rem, 1vw, 0.75rem);">
+        <li>Hot-swappable backends via config</li>
+        <li>Identity files injected into system prompt</li>
+        <li>AGENTS.md, SOUL.md, USER.md, IDENTITY.md</li>
+        <li>Heartbeat system for proactive execution</li>
+      </ul>
+    </div>
+    <div>
+      <h3 style="font-size: clamp(1rem, 2vw, 1.5rem); margin-bottom: clamp(0.5rem, 1vw, 0.75rem);">Hybrid Search (RRF)</h3>
+      <div class="flow" style="flex-direction: column; align-items: flex-start;">
+        <div class="flow-box" style="width: 100%; text-align: center;">Query</div>
+        <div class="arch-connector" style="align-self: center;">|</div>
+        <div style="display: flex; gap: clamp(0.3rem, 0.8vw, 0.5rem); width: 100%;">
+          <div class="flow-box" style="flex: 1; text-align: center;">FTS Score</div>
+          <div class="flow-box magenta-box" style="flex: 1; text-align: center;">Vector Score</div>
+        </div>
+        <div class="arch-connector" style="align-self: center;">|</div>
+        <div class="flow-box" style="width: 100%; text-align: center; border-color: rgba(0,255,204,0.5);">Reciprocal Rank Fusion</div>
+      </div>
+    </div>
+  </div>
+  <span class="slide-number">19</span>
+</section>
+
+<!-- ════════════════════════════════════════ SLIDE 20: SECTION - Extensibility ════════════════════════════════════════ -->
+<section class="slide section-slide" data-title="Section: Extensibility">
+  <div class="section-number">07</div>
+  <div class="section-label reveal">Section</div>
+  <h1 class="reveal delay-1 glow-text">Extensibility</h1>
+  <p class="subtitle reveal delay-2">Everything is a trait. Everything is pluggable.</p>
+  <span class="slide-number">20</span>
+</section>
+
+<!-- ════════════════════════════════════════ SLIDE 21: SKILLS SYSTEM ════════════════════════════════════════ -->
+<section class="slide" data-title="Skills System">
+  <h2 class="reveal">Skills System</h2>
+  <p class="subtitle reveal delay-1">SKILL.md prompt extensions that shape agent behavior</p>
+  <div class="two-col reveal delay-2" style="margin-top: clamp(0.5rem, 1.5vw, 1rem);">
+    <div>
+      <h3 style="font-size: clamp(1rem, 2vw, 1.5rem); margin-bottom: clamp(0.5rem, 1vw, 0.75rem);">Trust Model</h3>
+      <div class="card" style="margin-bottom: clamp(0.4rem, 0.8vw, 0.5rem);">
+        <h4>Trusted Skills</h4>
+        <p>User-placed in ~/.ironclaw/skills/ or workspace. Full tool access.</p>
+      </div>
+      <div class="card magenta-card">
+        <h4>Installed Skills</h4>
+        <p>From registry. Read-only tools only. Sandboxed by default.</p>
+      </div>
+    </div>
+    <div>
+      <h3 style="font-size: clamp(1rem, 2vw, 1.5rem); margin-bottom: clamp(0.5rem, 1vw, 0.75rem);">Selection Pipeline</h3>
+      <div class="flow" style="flex-direction: column; align-items: stretch;">
+        <div class="flow-box" style="text-align: center;">Gating (check bin/env/config)</div>
+        <div class="arch-connector" style="text-align: center;">|</div>
+        <div class="flow-box" style="text-align: center;">Scoring (keywords/patterns/tags)</div>
+        <div class="arch-connector" style="text-align: center;">|</div>
+        <div class="flow-box" style="text-align: center;">Budget (fit within SKILLS_MAX_TOKENS)</div>
+        <div class="arch-connector" style="text-align: center;">|</div>
+        <div class="flow-box magenta-box" style="text-align: center;">Attenuation (trust-based tool ceiling)</div>
+      </div>
+    </div>
+  </div>
+  <span class="slide-number">21</span>
+</section>
+
+<!-- ════════════════════════════════════════ SLIDE 22: DEPLOYMENT ════════════════════════════════════════ -->
+<section class="slide" data-title="Deployment">
+  <h2 class="reveal">Deployment</h2>
+  <div class="card-grid cols-3 reveal delay-1">
+    <div class="card">
+      <h4>Docker Multi-Stage</h4>
+      <p>Minimal final image. Rust builder stage compiles static binary, runtime stage adds only what's needed.</p>
+    </div>
+    <div class="card magenta-card">
+      <h4>OCI Always-Free</h4>
+      <p>ARM A1.Flex on Oracle Cloud. 4 OCPUs, 24 GB RAM, always free. One-click deployment script.</p>
+    </div>
+    <div class="card">
+      <h4>systemd Service</h4>
+      <p>Built-in service installer. <code style="color: var(--cyan);">zerooraclaw service install</code> creates and enables the unit.</p>
+    </div>
+  </div>
+  <div class="code-block reveal delay-2" style="margin-top: clamp(0.75rem, 2vw, 1.25rem); max-width: 750px;">
+<span class="comment"># Build and run</span>
+$ <span class="func">cargo</span> build --release
+$ <span class="func">./target/release/zerooraclaw</span> run
+
+<span class="comment"># Or via Docker</span>
+$ <span class="func">docker</span> build -t zerooraclaw .
+$ <span class="func">docker</span> run -d --env-file .env zerooraclaw
+
+<span class="comment"># Install as system service</span>
+$ <span class="func">zerooraclaw</span> service install --start
+  </div>
+  <span class="slide-number">22</span>
+</section>
+
+<!-- ════════════════════════════════════════ SLIDE 23: CORE TRAITS ════════════════════════════════════════ -->
+<section class="slide" data-title="Core Traits">
+  <h2 class="reveal">Everything is a Trait</h2>
+  <p class="subtitle reveal delay-1">Pluggable at every layer</p>
+  <div class="card-grid cols-2 reveal delay-2" style="max-width: 900px; margin-top: clamp(0.5rem, 1.5vw, 1rem);">
+    <div class="code-block" style="margin: 0;">
+<span class="keyword">trait</span> <span class="type">Tool</span>          <span class="comment">// 70+ implementations</span>
+<span class="keyword">trait</span> <span class="type">Channel</span>       <span class="comment">// 18+ implementations</span>
+<span class="keyword">trait</span> <span class="type">LlmProvider</span>   <span class="comment">// 13+ backends</span>
+<span class="keyword">trait</span> <span class="type">Database</span>      <span class="comment">// Oracle, SQLite, Qdrant</span>
+<span class="keyword">trait</span> <span class="type">EmbeddingProvider</span>
+    </div>
+    <div class="code-block" style="margin: 0;">
+<span class="keyword">trait</span> <span class="type">SuccessEvaluator</span>
+<span class="keyword">trait</span> <span class="type">NetworkPolicyDecider</span>
+<span class="keyword">trait</span> <span class="type">Hook</span>          <span class="comment">// 6 lifecycle points</span>
+<span class="keyword">trait</span> <span class="type">Observer</span>      <span class="comment">// event/metric recording</span>
+<span class="keyword">trait</span> <span class="type">Tunnel</span>        <span class="comment">// CF, ngrok, Tailscale</span>
+    </div>
+  </div>
+  <p class="reveal delay-3" style="margin-top: clamp(0.75rem, 2vw, 1.25rem); font-size: clamp(0.8rem, 1.5vw, 1.1rem); color: var(--muted);">
+    Add a new LLM provider? Implement <span class="cyan">LlmProvider</span>.
+    New chat platform? Implement <span class="cyan">Channel</span>.
+    New storage? Implement <span class="cyan">Database</span>.
+  </p>
+  <span class="slide-number">23</span>
+</section>
+
+<!-- ════════════════════════════════════════ SLIDE 24: CLOSING ════════════════════════════════════════ -->
+<section class="slide" data-title="Get Started">
+  <div class="reveal">
+    <div class="version-badge">MIT OR Apache-2.0</div>
+  </div>
+  <h1 class="reveal delay-1 glow-text" style="font-size: clamp(1.8rem, 5vw, 4rem);">Get Started</h1>
+  <div class="code-block reveal delay-2" style="margin-top: clamp(0.75rem, 2vw, 1.25rem); max-width: 650px;">
+<span class="comment"># Clone and build</span>
+$ <span class="func">git</span> clone https://github.com/jasperan/zerooraclaw.git
+$ <span class="func">cd</span> zerooraclaw
+$ <span class="func">cp</span> .env.example .env  <span class="comment"># configure Oracle DB + LLM</span>
+$ <span class="func">cargo</span> build --release
+$ <span class="func">./target/release/zerooraclaw</span> run
+  </div>
+  <div class="stats-row reveal delay-3" style="margin-top: clamp(1rem, 2vw, 1.5rem);">
+    <div class="stat">
+      <div class="stat-value glow-text" style="font-size: clamp(1.5rem, 3vw, 2.5rem);">520</div>
+      <div class="stat-label">.rs files</div>
+    </div>
+    <div class="stat">
+      <div class="stat-value" style="font-size: clamp(1.5rem, 3vw, 2.5rem); color: var(--magenta);">70+</div>
+      <div class="stat-label">tools</div>
+    </div>
+    <div class="stat">
+      <div class="stat-value glow-text" style="font-size: clamp(1.5rem, 3vw, 2.5rem);">18+</div>
+      <div class="stat-label">channels</div>
+    </div>
+    <div class="stat">
+      <div class="stat-value" style="font-size: clamp(1.5rem, 3vw, 2.5rem); color: var(--magenta);">13+</div>
+      <div class="stat-label">LLM providers</div>
+    </div>
+  </div>
+  <p class="tagline reveal delay-4" style="margin-top: clamp(1rem, 2vw, 1.5rem);">
+    Zero overhead. Zero compromise. Oracle persistence.
+  </p>
+  <span class="slide-number">24</span>
+</section>
+
+<script>
+class SlidePresentation {
+  constructor() {
+    this.slides = document.querySelectorAll('.slide');
+    this.dots = [];
+    this.currentSlide = 0;
+    this.isScrolling = false;
+    this.scrollDebounce = null;
+    this.touchStartY = 0;
+    this.touchStartX = 0;
+
+    this.buildNavDots();
+    this.setupIntersectionObserver();
+    this.setupKeyboardNav();
+    this.setupTouchNav();
+    this.setupWheelNav();
+    this.updateProgress();
+  }
+
+  buildNavDots() {
+    const container = document.getElementById('nav-dots');
+    this.slides.forEach((slide, i) => {
+      const dot = document.createElement('button');
+      dot.className = 'nav-dot';
+      dot.setAttribute('aria-label', slide.dataset.title || `Slide ${i + 1}`);
+      dot.addEventListener('click', () => this.goToSlide(i));
+      container.appendChild(dot);
+      this.dots.push(dot);
+    });
+    this.dots[0].classList.add('active');
+  }
+
+  setupIntersectionObserver() {
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          const index = Array.from(this.slides).indexOf(entry.target);
+          this.currentSlide = index;
+          this.updateActiveDot(index);
+          this.updateProgress();
+          this.revealElements(entry.target);
+        }
+      });
+    }, { threshold: 0.5 });
+
+    this.slides.forEach(slide => observer.observe(slide));
+  }
+
+  revealElements(slide) {
+    const els = slide.querySelectorAll('.reveal, .reveal-left, .reveal-right, .reveal-scale');
+    els.forEach(el => el.classList.add('visible'));
+  }
+
+  updateActiveDot(index) {
+    this.dots.forEach(d => d.classList.remove('active'));
+    if (this.dots[index]) this.dots[index].classList.add('active');
+  }
+
+  updateProgress() {
+    const pct = this.slides.length > 1
+      ? (this.currentSlide / (this.slides.length - 1)) * 100
+      : 0;
+    document.getElementById('progress-bar').style.width = pct + '%';
+  }
+
+  goToSlide(index) {
+    if (index >= 0 && index < this.slides.length) {
+      this.slides[index].scrollIntoView({ behavior: 'smooth' });
+    }
+  }
+
+  setupKeyboardNav() {
+    document.addEventListener('keydown', (e) => {
+      switch(e.key) {
+        case 'ArrowDown':
+        case 'ArrowRight':
+        case ' ':
+        case 'PageDown':
+          e.preventDefault();
+          this.goToSlide(this.currentSlide + 1);
+          break;
+        case 'ArrowUp':
+        case 'ArrowLeft':
+        case 'PageUp':
+          e.preventDefault();
+          this.goToSlide(this.currentSlide - 1);
+          break;
+        case 'Home':
+          e.preventDefault();
+          this.goToSlide(0);
+          break;
+        case 'End':
+          e.preventDefault();
+          this.goToSlide(this.slides.length - 1);
+          break;
+      }
+    });
+  }
+
+  setupTouchNav() {
+    document.addEventListener('touchstart', (e) => {
+      this.touchStartY = e.touches[0].clientY;
+      this.touchStartX = e.touches[0].clientX;
+    }, { passive: true });
+
+    document.addEventListener('touchend', (e) => {
+      const deltaY = this.touchStartY - e.changedTouches[0].clientY;
+      const deltaX = this.touchStartX - e.changedTouches[0].clientX;
+      const absY = Math.abs(deltaY);
+      const absX = Math.abs(deltaX);
+
+      if (absY > 50 && absY > absX) {
+        if (deltaY > 0) {
+          this.goToSlide(this.currentSlide + 1);
+        } else {
+          this.goToSlide(this.currentSlide - 1);
+        }
+      }
+    }, { passive: true });
+  }
+
+  setupWheelNav() {
+    document.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      if (this.scrollDebounce) return;
+
+      this.scrollDebounce = setTimeout(() => {
+        this.scrollDebounce = null;
+      }, 800);
+
+      if (e.deltaY > 0) {
+        this.goToSlide(this.currentSlide + 1);
+      } else if (e.deltaY < 0) {
+        this.goToSlide(this.currentSlide - 1);
+      }
+    }, { passive: false });
+  }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  new SlidePresentation();
+});
+</script>
+
+</body>
+</html>

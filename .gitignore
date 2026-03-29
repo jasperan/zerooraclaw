@@ -58,3 +58,14 @@ playground/
 
 # Temporary rustc output
 rust_out
+
+# Local-only agent state
+.agents/
+.claude/
+.crush/
+.openhands/
+.serena/
+.pi/
+docs/plans/
+.playwright-mcp/
+CLAUDE.md
