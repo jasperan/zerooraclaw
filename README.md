@@ -4,6 +4,25 @@ Oracle AI Database-powered fork of ZeroClaw.
 
 ZeroOraClaw keeps the current ZeroClaw runtime and ports an Oracle-first storage layer on top. The headline change is simple: memory, session state, prompts, and vector search live in Oracle AI Database instead of the default upstream persistence stack.
 
+## Architecture at a Glance
+
+> **Full interactive presentation**: Open [`zerooraclaw-presentation.html`](zerooraclaw-presentation.html) in your browser for all 24 slides with animations and keyboard navigation.
+
+<table>
+<tr>
+<td align="center"><strong>Title</strong><br><img src="docs/slides/01-title.jpg" alt="ZeroOraClaw Title" width="400"/></td>
+<td align="center"><strong>By the Numbers</strong><br><img src="docs/slides/02-pitch.jpg" alt="The Pitch" width="400"/></td>
+</tr>
+<tr>
+<td align="center"><strong>Architecture Overview</strong><br><img src="docs/slides/04-architecture.jpg" alt="Architecture" width="400"/></td>
+<td align="center"><strong>18+ Channels</strong><br><img src="docs/slides/09-channels.jpg" alt="Channels" width="400"/></td>
+</tr>
+<tr>
+<td align="center"><strong>Defense in Depth</strong><br><img src="docs/slides/16-safety.jpg" alt="Safety" width="400"/></td>
+<td align="center"><strong>Core Traits</strong><br><img src="docs/slides/23-traits.jpg" alt="Core Traits" width="400"/></td>
+</tr>
+</table>
+
 ## What changed in this fork
 
 - Oracle AI Database backend added under `src/oracle/`
@@ -38,7 +57,7 @@ host = "localhost"
 port = 1521
 service = "FREEPDB1"
 user = "zerooraclaw"
-password = ""
+password = ""  # pragma: allowlist secret
 onnx_model = "ALL_MINILM_L12_V2"
 agent_id = "default"
 max_connections = 4
@@ -52,7 +71,7 @@ export ZEROORACLAW_ORACLE_HOST=localhost
 export ZEROORACLAW_ORACLE_PORT=1521
 export ZEROORACLAW_ORACLE_SERVICE=FREEPDB1
 export ZEROORACLAW_ORACLE_USER=zerooraclaw
-export ZEROORACLAW_ORACLE_PASSWORD='your-password'
+export ZEROORACLAW_ORACLE_PASSWORD='your-password'  # pragma: allowlist secret
 export ZEROORACLAW_ORACLE_ONNX_MODEL=ALL_MINILM_L12_V2
 export ZEROORACLAW_ORACLE_AGENT_ID=default
 ```
