@@ -25,7 +25,7 @@ impl OracleSessionStore {
 
     /// Save messages JSON for a session key (upsert).
     pub fn save_messages(&self, session_key: &str, messages_json: &str) -> anyhow::Result<()> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+        let conn = super::lock_conn(&self.conn)?;
         conn.execute(
             "MERGE INTO ZERO_SESSIONS s
              USING (SELECT :1 AS session_key, :2 AS agent_id FROM DUAL) src
@@ -49,7 +49,7 @@ impl OracleSessionStore {
 
     /// Load messages JSON for a session key. Returns `None` if not found.
     pub fn load_messages(&self, session_key: &str) -> anyhow::Result<Option<String>> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+        let conn = super::lock_conn(&self.conn)?;
         match conn.query_row(
             "SELECT messages FROM ZERO_SESSIONS WHERE session_key = :1 AND agent_id = :2",
             &[&session_key, &self.agent_id],
@@ -72,7 +72,7 @@ impl OracleSessionStore {
         role: &str,
         content: &str,
     ) -> anyhow::Result<()> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+        let conn = super::lock_conn(&self.conn)?;
         conn.execute(
             "INSERT INTO ZERO_TRANSCRIPTS (agent_id, role, content, session_id)
              VALUES (:1, :2, :3, :4)",
@@ -85,7 +85,7 @@ impl OracleSessionStore {
 
     /// List all session keys for this agent, most recently updated first.
     pub fn list_sessions(&self) -> anyhow::Result<Vec<String>> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+        let conn = super::lock_conn(&self.conn)?;
         let rows = conn.query(
             "SELECT session_key FROM ZERO_SESSIONS WHERE agent_id = :1 ORDER BY updated_at DESC",
             &[&self.agent_id],
@@ -100,7 +100,7 @@ impl OracleSessionStore {
 
     /// Delete a session and its transcripts.
     pub fn delete_session(&self, session_key: &str) -> anyhow::Result<bool> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+        let conn = super::lock_conn(&self.conn)?;
         // Delete transcripts first (foreign-key-like relationship via session_id)
         conn.execute(
             "DELETE FROM ZERO_TRANSCRIPTS WHERE session_id = :1 AND agent_id = :2",

@@ -33,7 +33,7 @@ impl OracleConfigStore {
 
     /// Set a config key-value pair (upsert).
     pub fn set(&self, key: &str, value: &str) -> anyhow::Result<()> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+        let conn = super::lock_conn(&self.conn)?;
         conn.execute(
             "MERGE INTO ZERO_CONFIG c
              USING (SELECT :1 AS config_key, :2 AS agent_id FROM DUAL) src
@@ -50,7 +50,7 @@ impl OracleConfigStore {
 
     /// Get a config value by key. Returns `None` if not found.
     pub fn get(&self, key: &str) -> anyhow::Result<Option<String>> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+        let conn = super::lock_conn(&self.conn)?;
         match conn.query_row(
             "SELECT config_value FROM ZERO_CONFIG WHERE config_key = :1 AND agent_id = :2",
             &[&key, &self.agent_id],
@@ -66,7 +66,7 @@ impl OracleConfigStore {
 
     /// List all config keys for this agent.
     pub fn list_keys(&self) -> anyhow::Result<Vec<String>> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+        let conn = super::lock_conn(&self.conn)?;
         let rows = conn.query(
             "SELECT config_key FROM ZERO_CONFIG WHERE agent_id = :1 ORDER BY config_key",
             &[&self.agent_id],

@@ -109,9 +109,7 @@ impl Memory for OracleMemory {
         let model = self.model_name.clone();
 
         tokio::task::spawn_blocking(move || {
-            let guard = conn
-                .lock()
-                .map_err(|e| anyhow::anyhow!("Connection lock poisoned: {e}"))?;
+            let guard = super::lock_conn(&conn)?;
 
             // Use VECTOR_EMBEDDING() inline — Oracle computes the embedding
             // in-database from the content text.  We pass content twice: once
@@ -176,9 +174,7 @@ impl Memory for OracleMemory {
         let model = self.model_name.clone();
 
         tokio::task::spawn_blocking(move || {
-            let guard = conn
-                .lock()
-                .map_err(|e| anyhow::anyhow!("Connection lock poisoned: {e}"))?;
+            let guard = super::lock_conn(&conn)?;
 
             let mut entries = Vec::new();
 
@@ -358,9 +354,7 @@ impl Memory for OracleMemory {
         let key = key.to_string();
 
         tokio::task::spawn_blocking(move || {
-            let guard = conn
-                .lock()
-                .map_err(|e| anyhow::anyhow!("Connection lock poisoned: {e}"))?;
+            let guard = super::lock_conn(&conn)?;
 
             let sql = "
                 SELECT memory_id, key, content, category,
@@ -402,9 +396,7 @@ impl Memory for OracleMemory {
         let session_id = session_id.map(|s| s.to_string());
 
         tokio::task::spawn_blocking(move || {
-            let guard = conn
-                .lock()
-                .map_err(|e| anyhow::anyhow!("Connection lock poisoned: {e}"))?;
+            let guard = super::lock_conn(&conn)?;
 
             // Build SQL dynamically based on filters
             let mut sql = String::from(
@@ -451,9 +443,7 @@ impl Memory for OracleMemory {
         let key = key.to_string();
 
         tokio::task::spawn_blocking(move || {
-            let guard = conn
-                .lock()
-                .map_err(|e| anyhow::anyhow!("Connection lock poisoned: {e}"))?;
+            let guard = super::lock_conn(&conn)?;
 
             let stmt = guard.execute(
                 "DELETE FROM ZERO_MEMORIES WHERE key = :1 AND agent_id = :2",
@@ -476,9 +466,7 @@ impl Memory for OracleMemory {
         let agent_id = self.agent_id.clone();
 
         tokio::task::spawn_blocking(move || {
-            let guard = conn
-                .lock()
-                .map_err(|e| anyhow::anyhow!("Connection lock poisoned: {e}"))?;
+            let guard = super::lock_conn(&conn)?;
 
             let count: i64 = guard.query_row_as(
                 "SELECT COUNT(*) FROM ZERO_MEMORIES WHERE agent_id = :1",
@@ -494,7 +482,7 @@ impl Memory for OracleMemory {
     async fn health_check(&self) -> bool {
         let conn = self.conn.clone();
 
-        tokio::task::spawn_blocking(move || conn.lock().map_or(false, |guard| guard.ping().is_ok()))
+        tokio::task::spawn_blocking(move || conn.lock().is_ok_and(|guard| guard.ping().is_ok()))
             .await
             .unwrap_or(false)
     }

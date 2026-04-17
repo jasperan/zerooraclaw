@@ -24,7 +24,7 @@ impl OracleStateStore {
 
     /// Set a key-value pair (upsert).
     pub fn set(&self, key: &str, value: &str) -> anyhow::Result<()> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+        let conn = super::lock_conn(&self.conn)?;
         conn.execute(
             "MERGE INTO ZERO_STATE s
              USING (SELECT :1 AS state_key, :2 AS agent_id FROM DUAL) src
@@ -41,7 +41,7 @@ impl OracleStateStore {
 
     /// Get a value by key. Returns `None` if not found.
     pub fn get(&self, key: &str) -> anyhow::Result<Option<String>> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+        let conn = super::lock_conn(&self.conn)?;
         match conn.query_row(
             "SELECT value FROM ZERO_STATE WHERE state_key = :1 AND agent_id = :2",
             &[&key, &self.agent_id],
@@ -57,7 +57,7 @@ impl OracleStateStore {
 
     /// Delete a key. Returns `true` if a row was deleted.
     pub fn delete(&self, key: &str) -> anyhow::Result<bool> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+        let conn = super::lock_conn(&self.conn)?;
         let stmt = conn.execute(
             "DELETE FROM ZERO_STATE WHERE state_key = :1 AND agent_id = :2",
             &[&key, &self.agent_id],
@@ -72,7 +72,7 @@ impl OracleStateStore {
 
     /// List all state keys for this agent.
     pub fn list_keys(&self) -> anyhow::Result<Vec<String>> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+        let conn = super::lock_conn(&self.conn)?;
         let rows = conn.query(
             "SELECT state_key FROM ZERO_STATE WHERE agent_id = :1 ORDER BY state_key",
             &[&self.agent_id],

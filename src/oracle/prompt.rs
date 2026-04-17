@@ -25,7 +25,7 @@ impl OraclePromptStore {
 
     /// Get a prompt by name. Returns `None` if not found.
     pub fn get_prompt(&self, name: &str) -> anyhow::Result<Option<String>> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+        let conn = super::lock_conn(&self.conn)?;
         match conn.query_row(
             "SELECT content FROM ZERO_PROMPTS WHERE prompt_name = :1 AND agent_id = :2",
             &[&name, &self.agent_id],
@@ -41,7 +41,7 @@ impl OraclePromptStore {
 
     /// Set a prompt by name (upsert).
     pub fn set_prompt(&self, name: &str, content: &str) -> anyhow::Result<()> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+        let conn = super::lock_conn(&self.conn)?;
         conn.execute(
             "MERGE INTO ZERO_PROMPTS p
              USING (SELECT :1 AS prompt_name, :2 AS agent_id FROM DUAL) src
@@ -65,7 +65,7 @@ impl OraclePromptStore {
 
     /// List all prompt names for this agent.
     pub fn list_prompts(&self) -> anyhow::Result<Vec<String>> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+        let conn = super::lock_conn(&self.conn)?;
         let rows = conn.query(
             "SELECT prompt_name FROM ZERO_PROMPTS WHERE agent_id = :1 ORDER BY prompt_name",
             &[&self.agent_id],
