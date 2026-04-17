@@ -69,3 +69,13 @@ rust_out
 docs/plans/
 .playwright-mcp/
 CLAUDE.md
+
+# OMC in-flight state
+.omc/
+
+# Claude-generated planning outputs
+dogfood-output/
+task_plan.md
+findings.md
+progress.md
+content/
